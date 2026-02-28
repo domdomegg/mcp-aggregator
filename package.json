@@ -1,15 +1,14 @@
 {
-  "name": "typescript-library-template",
-  "version": "0.0.0",
-  "description": "Template for creating TypeScript libraries",
+  "name": "mcp-gateway",
+  "version": "0.1.0",
+  "description": "MCP gateway aggregating multiple upstream MCP servers with per-user OAuth.",
   "license": "MIT",
   "author": "Adam Jones (domdomegg)",
   "repository": {
     "type": "git",
-    "url": "https://github.com/domdomegg/typescript-library-template.git"
+    "url": "https://github.com/domdomegg/mcp-gateway.git"
   },
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "bin": "dist/index.js",
   "files": [
     "dist"
   ],
@@ -23,10 +22,17 @@
   },
   "devDependencies": {
     "@tsconfig/node-lts": "^22.0.2",
+    "@types/express": "^5.0.6",
     "eslint": "^9.32.0",
     "eslint-config-domdomegg": "^2.0.9",
     "tsconfig-domdomegg": "^1.0.0",
     "typescript": "^5.8.3",
     "vitest": "^3.2.4"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.26.0",
+    "express": "^5.2.1",
+    "jose": "^6.1.3",
+    "zod": "^4.3.6"
   }
 }

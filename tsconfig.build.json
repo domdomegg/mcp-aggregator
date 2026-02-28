@@ -6,5 +6,6 @@
   },
   "exclude": [
     "**/*.test.ts",
+    "**/*.fixture.ts",
   ],
 }

@@ -120,3 +120,7 @@ dist
 # built artifacts
 build/
 dist/
+
+# local config / data
+mcp-gateway.config.json
+*.sqlite
