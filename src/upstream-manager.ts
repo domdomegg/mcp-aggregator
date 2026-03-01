@@ -278,13 +278,16 @@ export class UpstreamManager {
 			if (userId && !this.requiresOAuth.has(upstreamName) && this.looksLikeAuthError(err)) {
 				try {
 					await this.discoverUpstreamOAuth(upstream);
-					// Discovery succeeded — upstream requires OAuth, nothing we can do for listing without a token
+					this.requiresOAuth.add(upstreamName);
 				} catch {
 					// OAuth discovery failed — upstream is just broken
 				}
 			}
 
-			console.error(`Failed to list tools from ${upstreamName}:`, err);
+			if (!this.looksLikeAuthError(err)) {
+				console.error(`Failed to list tools from ${upstreamName}:`, err);
+			}
+
 			return [];
 		}
 	}
