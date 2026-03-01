@@ -6,7 +6,7 @@
   "author": "Adam Jones (domdomegg)",
   "repository": {
     "type": "git",
-    "url": "https://github.com/domdomegg/mcp-gateway.git"
+    "url": "https://github.com/domdomegg/mcp-aggregator.git"
   },
   "bin": "dist/index.js",
   "files": [

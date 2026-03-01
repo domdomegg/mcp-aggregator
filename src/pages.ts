@@ -53,7 +53,7 @@ const BTN_CSS = `.btn { display: inline-block; margin-top: 20px; font: inherit; 
 export const renderSuccessPage = (upstreamName: string): string => `${pageHead('Authentication successful', CENTER_CSS)}
 <body>
 <div class="center">
-<h1>MCP Gateway</h1>
+<h1>MCP Aggregator</h1>
 <p class="msg">Authenticated with <strong>${escapeHtml(upstreamName)}</strong></p>
 <p class="msg">You can close this tab and retry your request.</p>
 ${footerHtml}
@@ -65,7 +65,7 @@ export const renderErrorPage = (message: string): string => `${pageHead('Authent
   .msg-err { color: var(--error); }`)}
 <body>
 <div class="center">
-<h1>MCP Gateway</h1>
+<h1>MCP Aggregator</h1>
 <p class="msg msg-err">${escapeHtml(message)}</p>
 ${footerHtml}
 </div>
@@ -114,19 +114,19 @@ const upstreamRow = (u: DashboardUpstream): string => {
 </div>`;
 };
 
-export const renderDashboardPage = (upstreams: DashboardUpstream[]): string => `${pageHead('MCP Gateway', DASHBOARD_CSS)}
+export const renderDashboardPage = (upstreams: DashboardUpstream[]): string => `${pageHead('MCP Aggregator', DASHBOARD_CSS)}
 <body>
-<h1>MCP Gateway</h1>
+<h1>MCP Aggregator</h1>
 ${upstreams.map((u) => upstreamRow(u)).join('\n')}
 ${footerHtml}
 </body>
 </html>`;
 
-export const renderAuthCompletePage = (clientRedirectUrl: string, dashboardUrl: string): string => `${pageHead('MCP Gateway', `${CENTER_CSS}
+export const renderAuthCompletePage = (clientRedirectUrl: string, dashboardUrl: string): string => `${pageHead('MCP Aggregator', `${CENTER_CSS}
   ${BTN_CSS}`)}
 <body>
 <div class="center">
-<h1>MCP Gateway</h1>
+<h1>MCP Aggregator</h1>
 <p class="msg">Connect your services to get started.</p>
 <a id="go" class="btn" href="${escapeHtml(clientRedirectUrl)}">connect services</a>
 ${footerHtml}

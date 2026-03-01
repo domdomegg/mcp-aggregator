@@ -54,7 +54,7 @@ npx -y mcp-aggregator
 <summary>Running with Docker</summary>
 
 ```bash
-docker run -e 'MCP_AGGREGATOR_CONFIG={"auth":{"issuer":"...","clientId":"..."},"upstreams":[...]}' -p 3000:3000 ghcr.io/domdomegg/mcp-gateway
+docker run -e 'MCP_AGGREGATOR_CONFIG={"auth":{"issuer":"...","clientId":"..."},"upstreams":[...]}' -p 3000:3000 ghcr.io/domdomegg/mcp-aggregator
 ```
 
 </details>
