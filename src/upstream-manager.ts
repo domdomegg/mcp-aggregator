@@ -362,7 +362,9 @@ export class UpstreamManager {
 		return this.config.issuerUrl ?? `http://localhost:${this.config.port ?? 3000}`;
 	}
 
-	/** Discover upstream OAuth metadata (RFC 9728 + RFC 8414). Cached. */
+	/** Discover upstream OAuth metadata (RFC 9728 + RFC 8414). Cached.
+	 *  Tries RFC 9728 protected resource metadata first, falls back to
+	 *  RFC 8414 authorization server metadata on the upstream's origin. */
 	private async discoverUpstreamOAuth(upstream: UpstreamConfig): Promise<UpstreamOAuthMeta> {
 		const cached = this.oauthMetaCache.get(upstream.name);
 		if (cached && Date.now() < cached.expiresAt) {
@@ -372,27 +374,33 @@ export class UpstreamManager {
 		const serverUrl = new URL(upstream.url);
 		const baseUrl = `${serverUrl.protocol}//${serverUrl.host}`;
 
+		let authServerOrigin: string | undefined;
+
 		// RFC 9728: discover protected resource metadata
 		// Per Section 3.1, when the resource identifier contains a path component,
 		// insert /.well-known/oauth-protected-resource between the host and path.
 		// e.g. https://example.com/mcp → https://example.com/.well-known/oauth-protected-resource/mcp
 		const resourcePath = serverUrl.pathname === '/' ? '' : serverUrl.pathname;
-		const prmRes = await fetch(`${baseUrl}/.well-known/oauth-protected-resource${resourcePath}`, {
-			signal: AbortSignal.timeout(this.discoveryTimeout),
-		});
-		if (!prmRes.ok) {
-			throw new Error(`Failed to discover OAuth metadata for ${upstream.name}: ${prmRes.status}`);
+		try {
+			const prmRes = await fetch(`${baseUrl}/.well-known/oauth-protected-resource${resourcePath}`, {
+				signal: AbortSignal.timeout(this.discoveryTimeout),
+			});
+			if (prmRes.ok) {
+				const prm = await prmRes.json() as {authorization_servers?: string[]};
+				const authServerUrl = prm.authorization_servers?.[0];
+				if (authServerUrl) {
+					authServerOrigin = new URL(authServerUrl).origin;
+				}
+			}
+		} catch {
+			// RFC 9728 discovery failed — will fall back to RFC 8414 on upstream origin
 		}
 
-		const prm = await prmRes.json() as {authorization_servers?: string[]};
-		const authServerUrl = prm.authorization_servers?.[0];
-		if (!authServerUrl) {
-			throw new Error(`No authorization server found for ${upstream.name}`);
-		}
+		// Fall back to using the upstream's own origin as the authorization server
+		authServerOrigin ??= baseUrl;
 
 		// RFC 8414: discover authorization server metadata
-		const asUrl = new URL(authServerUrl);
-		const asMetaRes = await fetch(`${asUrl.origin}/.well-known/oauth-authorization-server`, {
+		const asMetaRes = await fetch(`${authServerOrigin}/.well-known/oauth-authorization-server`, {
 			signal: AbortSignal.timeout(this.discoveryTimeout),
 		});
 		if (!asMetaRes.ok) {
@@ -416,7 +424,8 @@ export class UpstreamManager {
 		return meta;
 	}
 
-	/** Register gateway as OAuth client with upstream (DCR). Cached in SQLite. */
+	/** Register gateway as OAuth client with upstream (DCR), or fall back to
+	 *  IndieAuth-style client_id (gateway base URL) when DCR is unavailable. Cached in SQLite. */
 	private async ensureRegistration(upstream: UpstreamConfig): Promise<{clientId: string; clientSecret: string | null}> {
 		const existing = this.store.getRegistration(upstream.name);
 		if (existing) {
@@ -424,8 +433,12 @@ export class UpstreamManager {
 		}
 
 		const meta = await this.discoverUpstreamOAuth(upstream);
+
+		// If no registration endpoint, use IndieAuth convention: client_id = base URL of redirect_uri
 		if (!meta.registrationEndpoint) {
-			throw new Error(`Upstream ${upstream.name} does not support dynamic client registration`);
+			const clientId = this.getBaseUrl();
+			this.store.upsertRegistration(upstream.name, clientId, null, JSON.stringify({client_id: clientId}));
+			return {clientId, clientSecret: null};
 		}
 
 		const callbackUrl = `${this.getBaseUrl()}/upstream-auth/callback`;
