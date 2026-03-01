@@ -18,6 +18,7 @@
     "lint": "eslint",
     "clean": "rm -rf dist",
     "build": "tsc --project tsconfig.build.json",
+    "start": "npm run build && node dist/index.js",
     "prepublishOnly": "npm run clean && npm run build"
   },
   "devDependencies": {

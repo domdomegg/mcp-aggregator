@@ -212,7 +212,17 @@ const getAccessToken = async (): Promise<string> => {
 	let location = res.headers.get('location')!;
 	while (location && !location.startsWith('http://localhost:9999')) {
 		res = await fetch(location, {redirect: 'manual'}); // eslint-disable-line no-await-in-loop
-		location = res.headers.get('location') ?? '';
+		const loc = res.headers.get('location') ?? '';
+		if (loc) {
+			location = loc;
+		} else {
+			// Auth complete page: extract client redirect URL from HTML body
+			const body = await res.text(); // eslint-disable-line no-await-in-loop
+			const re = /window\.location\.href\s*=\s*("[^"]*")/;
+			const match = re.exec(body);
+			expect(match).toBeTruthy();
+			location = JSON.parse(match![1]!) as string;
+		}
 	}
 
 	const callbackUrl = new URL(location);
@@ -324,7 +334,7 @@ describe('full OAuth flow + tool aggregation', () => {
 		expect(toolNames).toContain('public-server__get_server_name');
 
 		// Should have meta tool
-		expect(toolNames).toContain('gateway__status');
+		expect(toolNames).toContain('gateway__auth');
 
 		// Call public-server__ping
 		const pingRes = await mcpCall(token, 'tools/call', {name: 'public-server__ping', arguments: {}}, 3);
@@ -346,7 +356,7 @@ describe('full OAuth flow + tool aggregation', () => {
 	}, 30_000);
 });
 
-describe('gateway__status meta tool', () => {
+describe('gateway__auth meta tool', () => {
 	test('shows upstream auth statuses', async () => {
 		const token = await getAccessToken();
 
@@ -357,14 +367,17 @@ describe('gateway__status meta tool', () => {
 			clientInfo: {name: 'test', version: '1.0.0'},
 		});
 
-		const res = await mcpCall(token, 'tools/call', {name: 'gateway__status', arguments: {}}, 2);
+		const res = await mcpCall(token, 'tools/call', {name: 'gateway__auth', arguments: {}}, 2);
 		expect(res.status).toBe(200);
 		const body = await res.json() as {result: {content: {text: string}[]}};
-		const statuses = JSON.parse(body.result.content[0]!.text) as {
-			name: string;
-			authenticated: boolean;
-			authUrl?: string;
-		}[];
+		const statusResponse = JSON.parse(body.result.content[0]!.text) as {
+			dashboardUrl: string;
+			servers: {name: string; authenticated: boolean; authUrl?: string}[];
+		};
+		const statuses = statusResponse.servers;
+
+		// Dashboard URL should be present
+		expect(statusResponse.dashboardUrl).toBeTruthy();
 
 		// Public server should show as authenticated (no auth needed)
 		const publicStatus = statuses.find((s) => s.name === 'public-server');
@@ -396,12 +409,12 @@ describe('upstream OAuth token management', () => {
 			clientInfo: {name: 'test', version: '1.0.0'},
 		});
 
-		// gateway__status should show oauth-server as authenticated
-		const statusRes = await mcpCall(token, 'tools/call', {name: 'gateway__status', arguments: {}}, 2);
+		// gateway__auth should show oauth-server as authenticated
+		const statusRes = await mcpCall(token, 'tools/call', {name: 'gateway__auth', arguments: {}}, 2);
 		expect(statusRes.status).toBe(200);
 		const statusBody = await statusRes.json() as {result: {content: {text: string}[]}};
-		const statuses = JSON.parse(statusBody.result.content[0]!.text) as {name: string; authenticated: boolean}[];
-		const oauthStatus = statuses.find((s) => s.name === 'oauth-server');
+		const statuses = JSON.parse(statusBody.result.content[0]!.text) as {servers: {name: string; authenticated: boolean}[]};
+		const oauthStatus = statuses.servers.find((s) => s.name === 'oauth-server');
 		expect(oauthStatus?.authenticated).toBe(true);
 
 		// Should be able to call tools on the oauth upstream with the stored token
@@ -429,22 +442,22 @@ describe('upstream OAuth token management', () => {
 		});
 
 		// Confirm authenticated
-		const statusBefore = await mcpCall(token, 'tools/call', {name: 'gateway__status', arguments: {}}, 2);
+		const statusBefore = await mcpCall(token, 'tools/call', {name: 'gateway__auth', arguments: {}}, 2);
 		const beforeBody = await statusBefore.json() as {result: {content: {text: string}[]}};
-		const beforeStatuses = JSON.parse(beforeBody.result.content[0]!.text) as {name: string; authenticated: boolean}[];
-		expect(beforeStatuses.find((s) => s.name === 'oauth-server')?.authenticated).toBe(true);
+		const beforeStatuses = JSON.parse(beforeBody.result.content[0]!.text) as {servers: {name: string; authenticated: boolean}[]};
+		expect(beforeStatuses.servers.find((s) => s.name === 'oauth-server')?.authenticated).toBe(true);
 
 		// Unauth
-		const unauthRes = await mcpCall(token, 'tools/call', {name: 'gateway__unauth', arguments: {upstream: 'oauth-server'}}, 3);
+		const unauthRes = await mcpCall(token, 'tools/call', {name: 'gateway__unauth', arguments: {server: 'oauth-server'}}, 3);
 		expect(unauthRes.status).toBe(200);
 		const unauthBody = await unauthRes.json() as {result: {content: {text: string}[]}};
 		expect(unauthBody.result.content[0]!.text).toContain('oauth-server');
 
 		// Confirm now unauthenticated
-		const statusAfter = await mcpCall(token, 'tools/call', {name: 'gateway__status', arguments: {}}, 4);
+		const statusAfter = await mcpCall(token, 'tools/call', {name: 'gateway__auth', arguments: {}}, 4);
 		const afterBody = await statusAfter.json() as {result: {content: {text: string}[]}};
-		const afterStatuses = JSON.parse(afterBody.result.content[0]!.text) as {name: string; authenticated: boolean; authUrl?: string}[];
-		const afterOauth = afterStatuses.find((s) => s.name === 'oauth-server');
+		const afterStatuses = JSON.parse(afterBody.result.content[0]!.text) as {servers: {name: string; authenticated: boolean; authUrl?: string}[]};
+		const afterOauth = afterStatuses.servers.find((s) => s.name === 'oauth-server');
 		expect(afterOauth?.authenticated).toBe(false);
 		expect(afterOauth?.authUrl).toBeTruthy();
 
@@ -496,11 +509,11 @@ describe('full upstream OAuth browser flow', () => {
 			clientInfo: {name: 'test', version: '1.0.0'},
 		});
 
-		// Get authUrl from gateway__status
-		const statusRes = await mcpCall(token, 'tools/call', {name: 'gateway__status', arguments: {}}, 2);
+		// Get authUrl from gateway__auth
+		const statusRes = await mcpCall(token, 'tools/call', {name: 'gateway__auth', arguments: {}}, 2);
 		const statusBody = await statusRes.json() as {result: {content: {text: string}[]}};
-		const statuses = JSON.parse(statusBody.result.content[0]!.text) as {name: string; authenticated: boolean; authUrl?: string}[];
-		const oauthStatus = statuses.find((s) => s.name === 'oauth-server');
+		const statuses = JSON.parse(statusBody.result.content[0]!.text) as {servers: {name: string; authenticated: boolean; authUrl?: string}[]};
+		const oauthStatus = statuses.servers.find((s) => s.name === 'oauth-server');
 		expect(oauthStatus?.authenticated).toBe(false);
 		const authUrl = oauthStatus?.authUrl;
 		expect(authUrl).toBeTruthy();
@@ -597,7 +610,17 @@ const withTestGateway = async (
 		while (loc && !loc.startsWith('http://localhost:9999')) {
 			// eslint-disable-next-line no-await-in-loop
 			r = await fetch(loc, {redirect: 'manual'});
-			loc = r.headers.get('location') ?? '';
+			const nextLoc = r.headers.get('location') ?? '';
+			if (nextLoc) {
+				loc = nextLoc;
+			} else {
+				// Auth complete page: extract client redirect URL from HTML body
+				// eslint-disable-next-line no-await-in-loop
+				const body = await r.text();
+				const re = /window\.location\.href\s*=\s*("[^"]*")/;
+				const match = re.exec(body);
+				loc = match ? JSON.parse(match[1]!) as string : '';
+			}
 		}
 
 		const code = new URL(loc).searchParams.get('code')!;

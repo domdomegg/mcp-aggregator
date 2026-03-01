@@ -24,7 +24,7 @@ export const createGatewayServer = (
 		const tools = [];
 
 		const results = await Promise.allSettled(upstreamManager.upstreams.map(async (upstream) => {
-			const upstreamTools = await upstreamManager.listTools(upstream.name);
+			const upstreamTools = await upstreamManager.listTools(upstream.name, userId);
 			return {upstream, tools: upstreamTools};
 		}));
 
@@ -32,9 +32,9 @@ export const createGatewayServer = (
 			if (result.status === 'fulfilled') {
 				for (const tool of result.value.tools) {
 					tools.push({
+						...tool,
 						name: `${result.value.upstream.name}__${tool.name}`,
 						description: `[${result.value.upstream.name}] ${tool.description ?? ''}`,
-						inputSchema: tool.inputSchema,
 					});
 				}
 			} else {
@@ -43,73 +43,140 @@ export const createGatewayServer = (
 		}
 
 		// Gateway meta-tools
+		const unauthServers = upstreamManager.upstreams
+			.filter((u) => upstreamManager.upstreamRequiresOAuth(u.name, userId) && !store.hasToken(userId, u.name))
+			.map((u) => u.name);
+		const authDesc = unauthServers.length > 0
+			? `Show authentication status and authenticate upstream MCP servers. Pass the "server" argument to check a single server (equivalent to calling gateway__{server}__auth). Servers requiring authentication: ${unauthServers.join(', ')}`
+			: 'Show authentication status for upstream MCP servers. Pass the "server" argument to check a single server. All servers are currently connected.';
 		tools.push({
-			name: 'gateway__status',
-			description: 'Show all upstream MCP servers and their authentication status. Returns auth URLs for servers that need authentication.',
-			inputSchema: {type: 'object' as const, properties: {}},
+			name: 'gateway__auth',
+			description: authDesc,
+			inputSchema: {
+				type: 'object' as const,
+				properties: {
+					server: {type: 'string', description: 'Optional: name of a specific upstream server to check or authenticate'},
+				},
+			},
+			annotations: {
+				title: 'Gateway Authentication',
+				readOnlyHint: true,
+				openWorldHint: true,
+			},
 		});
+
+		// Per-server auth tools for unauthenticated upstreams.
+		// We expose both gateway__auth (general, with optional server arg) and
+		// gateway__{server}__auth (specific) so that tool-search implementations
+		// can match on the server name in the tool name itself, not just in the
+		// description or arguments. Both resolve to the same handleAuthTool() logic.
+		for (const serverName of unauthServers) {
+			tools.push({
+				name: `gateway__${serverName}__auth`,
+				description: `[${serverName}] Authenticate with ${serverName}. This server requires authentication before its tools become available. Equivalent to calling gateway__auth with server="${serverName}".`,
+				inputSchema: {type: 'object' as const, properties: {}},
+				annotations: {
+					title: `Authenticate ${serverName}`,
+					readOnlyHint: true,
+					openWorldHint: true,
+				},
+			});
+		}
+
 		tools.push({
 			name: 'gateway__unauth',
 			description: 'Remove stored authentication for an upstream MCP server, so you can re-authenticate or disconnect it.',
 			inputSchema: {
 				type: 'object' as const,
 				properties: {
-					upstream: {type: 'string', description: 'The name of the upstream server to deauthenticate'},
+					server: {type: 'string', description: 'The name of the upstream server to deauthenticate'},
 				},
-				required: ['upstream'],
+				required: ['server'],
+			},
+			annotations: {
+				title: 'Disconnect Server',
+				readOnlyHint: false,
+				destructiveHint: true,
+				idempotentHint: true,
+				openWorldHint: false,
 			},
 		});
 
 		return {tools};
 	});
 
-	server.setRequestHandler(CallToolRequestSchema, async (request) => {
-		const {name, arguments: args} = request.params;
-
-		if (name === 'gateway__status') {
-			const statuses = await Promise.all(upstreamManager.upstreams.map(async (upstream) => {
-				const requiresOAuth = upstreamManager.upstreamRequiresOAuth(upstream.name, userId)
-					|| await upstreamManager.probeUpstreamAuth(upstream.name);
-				const hasToken = requiresOAuth
-					? store.hasToken(userId, upstream.name)
-					: true;
-				const authUrl = !hasToken
-					? `${baseUrl}/upstream-auth/start?upstream=${upstream.name}&token=${accessToken}`
-					: undefined;
-
-				return {
-					name: upstream.name,
-					authenticated: hasToken,
-					...(authUrl ? {authUrl} : {}),
-				};
-			}));
-
+	const handleAuthTool = async (serverFilter?: string) => {
+		if (serverFilter && !upstreamManager.upstreams.find((u) => u.name === serverFilter)) {
 			return {
-				content: [{type: 'text' as const, text: JSON.stringify(statuses, null, 2)}],
+				content: [{type: 'text' as const, text: `Unknown upstream: ${serverFilter}`}],
+				isError: true,
 			};
 		}
 
+		const upstreamsToCheck = serverFilter
+			? upstreamManager.upstreams.filter((u) => u.name === serverFilter)
+			: upstreamManager.upstreams;
+
+		const statuses = await Promise.all(upstreamsToCheck.map(async (upstream) => {
+			const requiresOAuth = upstreamManager.upstreamRequiresOAuth(upstream.name, userId)
+				|| await upstreamManager.probeUpstreamAuth(upstream.name);
+			const hasToken = requiresOAuth
+				? store.hasToken(userId, upstream.name)
+				: true;
+			const authUrl = !hasToken
+				? `${baseUrl}/upstream-auth/start?upstream=${upstream.name}&token=${accessToken}`
+				: undefined;
+
+			return {
+				name: upstream.name,
+				authenticated: hasToken,
+				...(authUrl ? {authUrl} : {}),
+			};
+		}));
+
+		const dashboardUrl = `${baseUrl}/dashboard?token=${accessToken}`;
+		return {
+			content: [{type: 'text' as const, text: JSON.stringify({dashboardUrl, servers: statuses}, null, 2)}],
+		};
+	};
+
+	server.setRequestHandler(CallToolRequestSchema, async (request) => {
+		const {name, arguments: args} = request.params;
+
+		if (name === 'gateway__auth') {
+			const serverFilter = typeof args?.server === 'string' ? args.server : undefined;
+			return handleAuthTool(serverFilter);
+		}
+
 		if (name === 'gateway__unauth') {
-			const upstreamName = typeof args?.upstream === 'string' ? args.upstream : undefined;
-			if (!upstreamName) {
+			const serverName = typeof args?.server === 'string' ? args.server : undefined;
+			if (!serverName) {
 				return {
-					content: [{type: 'text' as const, text: 'Missing required argument: upstream'}],
+					content: [{type: 'text' as const, text: 'Missing required argument: server'}],
 					isError: true,
 				};
 			}
 
-			const upstream = upstreamManager.upstreams.find((u) => u.name === upstreamName);
+			const upstream = upstreamManager.upstreams.find((u) => u.name === serverName);
 			if (!upstream) {
 				return {
-					content: [{type: 'text' as const, text: `Unknown upstream: ${upstreamName}`}],
+					content: [{type: 'text' as const, text: `Unknown upstream: ${serverName}`}],
 					isError: true,
 				};
 			}
 
-			store.deleteToken(userId, upstreamName);
+			store.deleteToken(userId, serverName);
 			return {
-				content: [{type: 'text' as const, text: `Successfully removed authentication for ${upstreamName}`}],
+				content: [{type: 'text' as const, text: `Successfully removed authentication for ${serverName}`}],
 			};
+		}
+
+		// Per-server auth tools: gateway__{server}__auth
+		const perServerAuthMatch = /^gateway__(.+)__auth$/.exec(name);
+		if (perServerAuthMatch) {
+			const serverFilter = perServerAuthMatch[1]!;
+			// Delegate to the same logic as gateway__auth with a server filter
+			return handleAuthTool(serverFilter);
 		}
 
 		// Route to upstream: parse namespace prefix

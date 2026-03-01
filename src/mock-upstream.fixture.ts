@@ -89,11 +89,14 @@ export const createMockUpstream = async (opts: MockUpstreamOptions): Promise<Moc
 
 	if (opts.requireAuth) {
 		// OAuth discovery endpoints
-		app.get('/.well-known/oauth-protected-resource', (_req, res) => {
+		// RFC 9728: when the resource has a path (e.g. /mcp), the metadata URL
+		// is /.well-known/oauth-protected-resource/mcp
+		app.get('/.well-known/oauth-protected-resource/mcp', (_req, res) => {
 			// Will be set after server starts and we know the URL
+			const base = (app as unknown as {_baseUrl: string})._baseUrl;
 			res.json({
-				resource: (app as unknown as {_baseUrl: string})._baseUrl,
-				authorization_servers: [(app as unknown as {_baseUrl: string})._baseUrl],
+				resource: `${base}/mcp`,
+				authorization_servers: [base],
 			});
 		});
 

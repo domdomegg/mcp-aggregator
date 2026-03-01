@@ -11,7 +11,9 @@ import type {TokenStore} from './token-store.js';
 import type {UpstreamManager} from './upstream-manager.js';
 import type {GatewayConfig} from './types.js';
 import {createGatewayServer} from './gateway-server.js';
-import {renderSuccessPage, renderErrorPage} from './pages.js';
+import {
+	renderSuccessPage, renderErrorPage, renderDashboardPage, renderAuthCompletePage,
+} from './pages.js';
 
 const getString = (value: unknown): string | undefined =>
 	typeof value === 'string' ? value : undefined;
@@ -104,10 +106,82 @@ export const createApp = (
 			const {userId} = await oidcClient.exchangeCode(code, callbackUrl, pending.upstreamCodeVerifier);
 
 			const {redirectUrl} = provider.completeAuthorization(pending, userId);
-			res.redirect(redirectUrl);
+			const dashboardToken = provider.createDashboardToken(userId);
+			const dashboardUrl = `${getBaseUrl()}/dashboard?token=${dashboardToken}`;
+			res.send(renderAuthCompletePage(redirectUrl, dashboardUrl));
 		} catch (err) {
 			console.error('Callback error:', err);
 			res.status(500).send('Authentication failed');
+		}
+	});
+
+	// Dashboard: shows all upstreams with auth status and login links
+	app.get('/dashboard', async (req, res) => {
+		const token = getString(req.query.token);
+		if (!token) {
+			res.status(400).send(renderErrorPage('Missing token parameter'));
+			return;
+		}
+
+		try {
+			const authInfo = await provider.verifyAccessToken(token);
+			const userId = getString(authInfo.extra?.userId);
+			if (!userId) {
+				res.status(401).send(renderErrorPage('Missing user identity'));
+				return;
+			}
+
+			const upstreams = await Promise.all(config.upstreams.map(async (upstream) => {
+				const requiresOAuth = upstreamManager.upstreamRequiresOAuth(upstream.name, userId)
+					|| await upstreamManager.probeUpstreamAuth(upstream.name);
+				const hasToken = requiresOAuth
+					? store.hasToken(userId, upstream.name)
+					: true;
+				const authUrl = !hasToken
+					? `${getBaseUrl()}/upstream-auth/start?upstream=${upstream.name}&token=${token}`
+					: undefined;
+				const disconnectUrl = hasToken && requiresOAuth
+					? `${getBaseUrl()}/dashboard/disconnect?upstream=${upstream.name}&token=${token}`
+					: undefined;
+
+				return {
+					name: upstream.name,
+					authenticated: hasToken,
+					...(authUrl ? {authUrl} : {}),
+					...(disconnectUrl ? {disconnectUrl} : {}),
+				};
+			}));
+
+			res.send(renderDashboardPage(upstreams));
+		} catch (err) {
+			console.error('Dashboard error:', err);
+			res.status(500).send(renderErrorPage('Failed to load dashboard'));
+		}
+	});
+
+	// Dashboard: disconnect an upstream
+	app.get('/dashboard/disconnect', async (req, res) => {
+		const upstreamName = getString(req.query.upstream);
+		const token = getString(req.query.token);
+
+		if (!upstreamName || !token) {
+			res.status(400).send(renderErrorPage('Missing upstream or token parameter'));
+			return;
+		}
+
+		try {
+			const authInfo = await provider.verifyAccessToken(token);
+			const userId = getString(authInfo.extra?.userId);
+			if (!userId) {
+				res.status(401).send(renderErrorPage('Missing user identity'));
+				return;
+			}
+
+			store.deleteToken(userId, upstreamName);
+			res.redirect(`${getBaseUrl()}/dashboard?token=${token}`);
+		} catch (err) {
+			console.error('Dashboard disconnect error:', err);
+			res.status(500).send(renderErrorPage('Failed to disconnect upstream'));
 		}
 	});
 
@@ -129,7 +203,7 @@ export const createApp = (
 				return;
 			}
 
-			const authUrl = await upstreamManager.startUpstreamAuth(userId, upstreamName);
+			const authUrl = await upstreamManager.startUpstreamAuth(userId, upstreamName, token);
 			res.redirect(authUrl);
 		} catch (err) {
 			console.error('Upstream auth start error:', err);
@@ -148,8 +222,12 @@ export const createApp = (
 		}
 
 		try {
-			const {upstreamName} = await upstreamManager.handleUpstreamCallback(stateParam, code);
-			res.send(renderSuccessPage(upstreamName));
+			const {upstreamName, gatewayToken} = await upstreamManager.handleUpstreamCallback(stateParam, code);
+			if (gatewayToken) {
+				res.redirect(`${getBaseUrl()}/dashboard?token=${gatewayToken}`);
+			} else {
+				res.send(renderSuccessPage(upstreamName));
+			}
 		} catch (err) {
 			console.error('Upstream auth callback error:', err);
 			const message = err instanceof Error ? err.message : 'Unknown error';

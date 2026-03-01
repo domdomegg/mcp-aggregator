@@ -49,6 +49,7 @@ type UpstreamAuthState = {
 	upstreamName: string;
 	codeVerifier: string;
 	redirectUri: string;
+	gatewayToken?: string | undefined;
 	expiresAt: number;
 };
 
@@ -120,7 +121,7 @@ export class UpstreamManager {
 	}
 
 	/** Build the URL a user should visit to authenticate with an upstream. */
-	async startUpstreamAuth(userId: string, upstreamName: string): Promise<string> {
+	async startUpstreamAuth(userId: string, upstreamName: string, gatewayToken?: string): Promise<string> {
 		const upstream = this.config.upstreams.find((u) => u.name === upstreamName);
 		if (!upstream) {
 			throw new Error(`Unknown upstream: ${upstreamName}`);
@@ -139,6 +140,7 @@ export class UpstreamManager {
 			upstreamName,
 			codeVerifier,
 			redirectUri: callbackUrl,
+			gatewayToken,
 			expiresAt: Date.now() + 600_000, // 10 minutes
 		};
 
@@ -157,7 +159,7 @@ export class UpstreamManager {
 	}
 
 	/** Handle callback from upstream OAuth. Exchange code for tokens and store. */
-	async handleUpstreamCallback(stateParam: string, code: string): Promise<{upstreamName: string}> {
+	async handleUpstreamCallback(stateParam: string, code: string): Promise<{upstreamName: string; gatewayToken?: string | undefined}> {
 		const state = this.unsealUpstreamState(stateParam);
 		if (!state) {
 			throw new Error('Invalid or expired upstream auth state');
@@ -203,7 +205,7 @@ export class UpstreamManager {
 		};
 
 		this.store.upsertToken(state.userId, state.upstreamName, tokens);
-		return {upstreamName: state.upstreamName};
+		return {upstreamName: state.upstreamName, gatewayToken: state.gatewayToken};
 	}
 
 	/** Get a connected MCP client for an upstream, injecting stored auth if needed. */
@@ -247,21 +249,15 @@ export class UpstreamManager {
 		return client;
 	}
 
-	/** List tools from an upstream. Returns empty array if upstream is down. */
-	async listTools(upstreamName: string): Promise<Tool[]> {
+	/** List tools from an upstream. Returns empty array if upstream is down or auth is required. */
+	async listTools(upstreamName: string, userId?: string): Promise<Tool[]> {
 		const upstream = this.config.upstreams.find((u) => u.name === upstreamName);
 		if (!upstream) {
 			return [];
 		}
 
 		try {
-			const client = new Client({name: 'mcp-gateway', version: '1.0.0'});
-			const transport = new StreamableHTTPClientTransport(new URL(upstream.url));
-			await withTimeout(
-				client.connect(transport as Parameters<Client['connect']>[0]),
-				this.discoveryTimeout,
-				`connect to ${upstreamName}`,
-			);
+			const client = await this.getClient(upstreamName, userId);
 			try {
 				const result = await withTimeout(
 					client.listTools(),
@@ -272,8 +268,23 @@ export class UpstreamManager {
 			} finally {
 				await client.close().catch(noop);
 			}
-		} catch {
-			console.error(`Failed to list tools from ${upstreamName}`);
+		} catch (err) {
+			if (err instanceof UpstreamAuthRequiredError) {
+				return [];
+			}
+
+			// If it looks like a 401 and we haven't tried OAuth discovery yet,
+			// probe for OAuth metadata so future calls can prompt for auth
+			if (userId && !this.requiresOAuth.has(upstreamName) && this.looksLikeAuthError(err)) {
+				try {
+					await this.discoverUpstreamOAuth(upstream);
+					// Discovery succeeded — upstream requires OAuth, nothing we can do for listing without a token
+				} catch {
+					// OAuth discovery failed — upstream is just broken
+				}
+			}
+
+			console.error(`Failed to list tools from ${upstreamName}:`, err);
 			return [];
 		}
 	}
@@ -304,26 +315,25 @@ export class UpstreamManager {
 
 			// If the error looks like a 401/auth failure and we haven't tried OAuth yet,
 			// probe for OAuth metadata and mark this upstream as requiring auth
-			if (!this.requiresOAuth.has(upstreamName) && this.looksLikeAuthError(err)) {
-				const upstream = this.config.upstreams.find((u) => u.name === upstreamName);
-				if (upstream) {
-					try {
-						await this.discoverUpstreamOAuth(upstream);
-						// Discovery succeeded — this upstream requires OAuth
-						this.requiresOAuth.add(upstreamName);
-						const authUrl = `${this.getBaseUrl()}/upstream-auth/start?upstream=${upstreamName}`;
-						throw new UpstreamAuthRequiredError(upstreamName, authUrl);
-					} catch (discoverErr) {
-						if (discoverErr instanceof UpstreamAuthRequiredError) {
-							throw discoverErr;
-						}
-
-						// OAuth discovery failed — re-throw original error
-					}
-				}
+			const upstream = this.config.upstreams.find((u) => u.name === upstreamName);
+			if (!upstream || this.requiresOAuth.has(upstreamName) || !this.looksLikeAuthError(err)) {
+				throw err;
 			}
 
-			throw err;
+			try {
+				await this.discoverUpstreamOAuth(upstream);
+				// Discovery succeeded — this upstream requires OAuth
+				this.requiresOAuth.add(upstreamName);
+				const authUrl = `${this.getBaseUrl()}/upstream-auth/start?upstream=${upstreamName}`;
+				throw new UpstreamAuthRequiredError(upstreamName, authUrl);
+			} catch (discoverErr) {
+				if (discoverErr instanceof UpstreamAuthRequiredError) {
+					throw discoverErr;
+				}
+
+				// OAuth discovery failed — re-throw original error
+				throw err;
+			}
 		}
 	}
 
@@ -333,8 +343,16 @@ export class UpstreamManager {
 			return false;
 		}
 
+		// Check for numeric code property (e.g. StreamableHTTPError.code)
+		if ('code' in err && (err as {code: unknown}).code === 401) {
+			return true;
+		}
+
 		const message = err.message.toLowerCase();
-		return message.includes('401') || message.includes('unauthorized');
+		return message.includes('401')
+			|| message.includes('unauthorized')
+			|| message.includes('invalid_token')
+			|| message.includes('missing authorization');
 	}
 
 	private getBaseUrl(): string {
@@ -352,7 +370,11 @@ export class UpstreamManager {
 		const baseUrl = `${serverUrl.protocol}//${serverUrl.host}`;
 
 		// RFC 9728: discover protected resource metadata
-		const prmRes = await fetch(`${baseUrl}/.well-known/oauth-protected-resource`, {
+		// Per Section 3.1, when the resource identifier contains a path component,
+		// insert /.well-known/oauth-protected-resource between the host and path.
+		// e.g. https://example.com/mcp → https://example.com/.well-known/oauth-protected-resource/mcp
+		const resourcePath = serverUrl.pathname === '/' ? '' : serverUrl.pathname;
+		const prmRes = await fetch(`${baseUrl}/.well-known/oauth-protected-resource${resourcePath}`, {
 			signal: AbortSignal.timeout(this.discoveryTimeout),
 		});
 		if (!prmRes.ok) {

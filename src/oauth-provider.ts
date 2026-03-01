@@ -226,4 +226,15 @@ export class GatewayOAuthProvider implements OAuthServerProvider {
 	async revokeToken(client: OAuthClientInformationFull, request: OAuthTokenRevocationRequest): Promise<void> {
 		// Tokens are stateless sealed blobs — revocation is a no-op.
 	}
+
+	/** Create a short-lived access token for the dashboard (e.g. after OIDC login). */
+	createDashboardToken(userId: string): string {
+		return seal<TokenPayload>({
+			type: 'access',
+			clientId: 'dashboard',
+			userId,
+			scopes: [],
+			expiresAt: Date.now() + ACCESS_TOKEN_TTL_MS,
+		}, this.key);
+	}
 }
