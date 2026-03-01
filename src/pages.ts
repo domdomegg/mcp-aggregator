@@ -1,6 +1,6 @@
 export const renderSuccessPage = (upstreamName: string): string => `<!DOCTYPE html>
 <html>
-<head><title>Authentication successful</title></head>
+<head><meta name="generator" content="mcp-gateway"><title>Authentication successful</title></head>
 <body>
 <h1>Authenticated with ${escapeHtml(upstreamName)}</h1>
 <p>You can close this tab and retry your request.</p>
@@ -9,7 +9,7 @@ export const renderSuccessPage = (upstreamName: string): string => `<!DOCTYPE ht
 
 export const renderErrorPage = (message: string): string => `<!DOCTYPE html>
 <html>
-<head><title>Authentication failed</title></head>
+<head><meta name="generator" content="mcp-gateway"><title>Authentication failed</title></head>
 <body>
 <h1>Authentication failed</h1>
 <p>${escapeHtml(message)}</p>
@@ -28,6 +28,7 @@ export const renderDashboardPage = (upstreams: DashboardUpstream[]): string => `
 <html>
 <head>
 <title>MCP Gateway</title>
+<meta name="generator" content="mcp-gateway">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
   body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 600px; margin: 40px auto; padding: 0 20px; color: #1a1a1a; }
@@ -67,6 +68,7 @@ export const renderAuthCompletePage = (clientRedirectUrl: string, dashboardUrl: 
 <html>
 <head>
 <title>MCP Gateway</title>
+<meta name="generator" content="mcp-gateway">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
   body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 600px; margin: 40px auto; padding: 0 20px; color: #1a1a1a; text-align: center; }
