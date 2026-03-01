@@ -21,6 +21,7 @@ export type DashboardUpstream = {
 	authenticated: boolean;
 	authUrl?: string;
 	disconnectUrl?: string;
+	reconfigureUrl?: string;
 };
 
 export const renderDashboardPage = (upstreams: DashboardUpstream[]): string => `<!DOCTYPE html>
@@ -40,6 +41,8 @@ export const renderDashboardPage = (upstreams: DashboardUpstream[]): string => `
   .badge-ok { background: #e6f4ea; color: #1e7e34; }
   .badge-auth { background: #2563eb; color: #fff; cursor: pointer; }
   .badge-auth:hover { background: #1d4ed8; }
+  .badge-reconfigure { background: #f3f4f6; color: #374151; cursor: pointer; }
+  .badge-reconfigure:hover { background: #e5e7eb; }
   .badge-disconnect { background: none; color: #999; cursor: pointer; padding: 4px 8px; }
   .badge-disconnect:hover { color: #dc2626; }
 </style>
@@ -52,7 +55,7 @@ ${upstreams.map((u) => `  <li>
     <span class="name">${escapeHtml(u.name)}</span>
     <span class="actions">
     ${u.authenticated
-		? `<span class="badge badge-ok">Connected</span>${u.disconnectUrl ? `<a class="badge badge-disconnect" href="${escapeHtml(u.disconnectUrl)}">Disconnect</a>` : ''}`
+		? `<span class="badge badge-ok">Connected</span>${u.reconfigureUrl ? `<a class="badge badge-reconfigure" href="${escapeHtml(u.reconfigureUrl)}">Reconfigure</a>` : ''}${u.disconnectUrl ? `<a class="badge badge-disconnect" href="${escapeHtml(u.disconnectUrl)}">Disconnect</a>` : ''}`
 		: `<a class="badge badge-auth" href="${escapeHtml(u.authUrl ?? '#')}">Connect</a>`}
     </span>
   </li>`).join('\n')}

@@ -137,18 +137,20 @@ export const createApp = (
 				const hasToken = requiresOAuth
 					? store.hasToken(userId, upstream.name)
 					: true;
-				const authUrl = !hasToken
-					? `${getBaseUrl()}/upstream-auth/start?upstream=${upstream.name}&token=${token}`
-					: undefined;
+				const upstreamAuthUrl = `${getBaseUrl()}/upstream-auth/start?upstream=${upstream.name}&token=${token}`;
+				const authUrl = !hasToken ? upstreamAuthUrl : undefined;
 				const disconnectUrl = hasToken && requiresOAuth
 					? `${getBaseUrl()}/dashboard/disconnect?upstream=${upstream.name}&token=${token}`
 					: undefined;
+				// Re-running the auth flow lets the upstream re-prompt for configuration
+				const reconfigureUrl = hasToken && requiresOAuth ? upstreamAuthUrl : undefined;
 
 				return {
 					name: upstream.name,
 					authenticated: hasToken,
 					...(authUrl ? {authUrl} : {}),
 					...(disconnectUrl ? {disconnectUrl} : {}),
+					...(reconfigureUrl ? {reconfigureUrl} : {}),
 				};
 			}));
 
