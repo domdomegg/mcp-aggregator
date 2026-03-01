@@ -1,6 +1,6 @@
 {
   "name": "mcp-gateway",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "MCP gateway aggregating multiple upstream MCP servers with per-user OAuth.",
   "license": "MIT",
   "author": "Adam Jones (domdomegg)",
