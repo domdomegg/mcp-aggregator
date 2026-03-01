@@ -53,6 +53,13 @@ type UpstreamAuthState = {
 	expiresAt: number;
 };
 
+export type UpstreamStatus = {
+	/** Whether this upstream requires OAuth (false = public, no auth needed). */
+	requiresOAuth: boolean;
+	/** Whether the user has a usable connection (valid token or refreshable token). */
+	connected: boolean;
+};
+
 export class UpstreamManager {
 	private readonly key: Buffer;
 	private readonly oauthMetaCache = new Map<string, {meta: UpstreamOAuthMeta; expiresAt: number}>();
@@ -78,37 +85,33 @@ export class UpstreamManager {
 		return this.config.toolTimeout ?? DEFAULT_TOOL_TIMEOUT_MS;
 	}
 
-	/** Check if an upstream is known to require OAuth (from previous discovery or stored tokens). */
-	upstreamRequiresOAuth(upstreamName: string, userId?: string): boolean {
-		if (this.requiresOAuth.has(upstreamName)) {
-			return true;
-		}
+	/** Single source of truth for upstream auth status. Checks (in order):
+	 *  1. In-memory cache of known OAuth upstreams
+	 *  2. Any stored token row in the DB (expired or not — proves OAuth is required)
+	 *  3. HTTP probe via RFC 9728 / RFC 8414 discovery */
+	async getUpstreamStatus(upstreamName: string, userId: string): Promise<UpstreamStatus> {
+		const token = this.store.getToken(userId, upstreamName);
 
-		// If we have a stored token, the upstream must require OAuth
-		if (userId && this.store.hasToken(userId, upstreamName)) {
+		// If we already know it requires OAuth (from cache or a stored token row)
+		if (this.requiresOAuth.has(upstreamName) || token) {
 			this.requiresOAuth.add(upstreamName);
-			return true;
+			const connected = token !== undefined
+				&& (!this.store.isTokenExpired(token) || token.refresh_token !== null);
+			return {requiresOAuth: true, connected};
 		}
 
-		return false;
-	}
-
-	/** Probe whether an upstream requires OAuth by attempting RFC 9728 discovery. Caches result. */
-	async probeUpstreamAuth(upstreamName: string): Promise<boolean> {
-		if (this.requiresOAuth.has(upstreamName)) {
-			return true;
-		}
-
+		// Probe via HTTP discovery
 		const upstream = this.config.upstreams.find((u) => u.name === upstreamName);
 		if (!upstream) {
-			return false;
+			return {requiresOAuth: false, connected: true};
 		}
 
 		try {
 			await this.discoverUpstreamOAuth(upstream);
-			return true;
+			// discoverUpstreamOAuth adds to requiresOAuth on success
+			return {requiresOAuth: true, connected: false};
 		} catch {
-			return false;
+			return {requiresOAuth: false, connected: true};
 		}
 	}
 
@@ -208,54 +211,38 @@ export class UpstreamManager {
 		return {upstreamName: state.upstreamName, gatewayToken: state.gatewayToken};
 	}
 
-	/** Get a connected MCP client for an upstream, injecting stored auth if needed. */
+	/** Get a connected MCP client for an upstream, injecting stored auth if needed.
+	 *  Self-contained: resolves tokens, refreshes if expired, discovers OAuth on 401. */
 	async getClient(upstreamName: string, userId?: string): Promise<Client> {
 		const upstream = this.config.upstreams.find((u) => u.name === upstreamName);
 		if (!upstream) {
 			throw new Error(`Unknown upstream: ${upstreamName}`);
 		}
 
-		const headers: Record<string, string> = {};
+		const accessToken = userId
+			? await this.resolveAccessToken(upstream, userId)
+			: undefined;
 
-		// If we know this upstream requires OAuth (from cache, stored tokens, or previous discovery)
-		if (userId && this.upstreamRequiresOAuth(upstreamName, userId)) {
-			const token = this.store.getToken(userId, upstreamName);
-			if (!token) {
-				const authUrl = `${this.getBaseUrl()}/upstream-auth/start?upstream=${upstreamName}`;
-				throw new UpstreamAuthRequiredError(upstreamName, authUrl);
+		try {
+			return await this.connectClient(upstream, accessToken);
+		} catch (err) {
+			// If we connected without auth and got a 401, discover OAuth and report it
+			if (!accessToken && userId && this.looksLikeAuthError(err)) {
+				try {
+					await this.discoverUpstreamOAuth(upstream);
+				} catch {
+					throw err;
+				}
+
+				throw new UpstreamAuthRequiredError(upstreamName, `${this.getBaseUrl()}/upstream-auth/start?upstream=${upstreamName}`);
 			}
 
-			if (this.store.isTokenExpired(token) && token.refresh_token) {
-				await this.refreshUpstreamToken(upstream, userId, token.refresh_token);
-				const refreshed = this.store.getToken(userId, upstreamName)!;
-				headers.Authorization = `Bearer ${refreshed.access_token}`;
-			} else if (this.store.isTokenExpired(token)) {
-				const authUrl = `${this.getBaseUrl()}/upstream-auth/start?upstream=${upstreamName}`;
-				throw new UpstreamAuthRequiredError(upstreamName, authUrl);
-			} else {
-				headers.Authorization = `Bearer ${token.access_token}`;
-			}
+			throw err;
 		}
-
-		const client = new Client({name: 'mcp-gateway', version: '1.0.0'});
-		const transport = new StreamableHTTPClientTransport(new URL(upstream.url), {
-			requestInit: {headers},
-		});
-		await withTimeout(
-			client.connect(transport as Parameters<Client['connect']>[0]),
-			this.discoveryTimeout,
-			`connect to ${upstreamName}`,
-		);
-		return client;
 	}
 
 	/** List tools from an upstream. Returns empty array if upstream is down or auth is required. */
 	async listTools(upstreamName: string, userId?: string): Promise<Tool[]> {
-		const upstream = this.config.upstreams.find((u) => u.name === upstreamName);
-		if (!upstream) {
-			return [];
-		}
-
 		try {
 			const client = await this.getClient(upstreamName, userId);
 			try {
@@ -273,17 +260,6 @@ export class UpstreamManager {
 				return [];
 			}
 
-			// If it looks like a 401 and we haven't tried OAuth discovery yet,
-			// probe for OAuth metadata so future calls can prompt for auth
-			if (userId && !this.requiresOAuth.has(upstreamName) && this.looksLikeAuthError(err)) {
-				try {
-					await this.discoverUpstreamOAuth(upstream);
-					this.requiresOAuth.add(upstreamName);
-				} catch {
-					// OAuth discovery failed — upstream is just broken
-				}
-			}
-
 			if (!this.looksLikeAuthError(err)) {
 				console.error(`Failed to list tools from ${upstreamName}:`, err);
 			}
@@ -292,52 +268,71 @@ export class UpstreamManager {
 		}
 	}
 
-	/** Call a tool on an upstream with user auth. Detects OAuth requirements automatically. */
+	/** Call a tool on an upstream with user auth. */
 	async callTool(
 		upstreamName: string,
 		toolName: string,
 		args: Record<string, unknown>,
 		userId: string,
 	): Promise<CallToolResult> {
+		const client = await this.getClient(upstreamName, userId);
 		try {
-			const client = await this.getClient(upstreamName, userId);
-			try {
-				return await withTimeout(
-					client.callTool({name: toolName, arguments: args}, CallToolResultSchema) as Promise<CallToolResult>,
-					this.toolTimeout,
-					`call ${upstreamName}/${toolName}`,
-				);
-			} finally {
-				await client.close().catch(noop);
-			}
-		} catch (err) {
-			// If we already know it needs OAuth, re-throw as-is
-			if (err instanceof UpstreamAuthRequiredError) {
-				throw err;
-			}
-
-			// If the error looks like a 401/auth failure and we haven't tried OAuth yet,
-			// probe for OAuth metadata and mark this upstream as requiring auth
-			const upstream = this.config.upstreams.find((u) => u.name === upstreamName);
-			if (!upstream || this.requiresOAuth.has(upstreamName) || !this.looksLikeAuthError(err)) {
-				throw err;
-			}
-
-			try {
-				await this.discoverUpstreamOAuth(upstream);
-				// Discovery succeeded — this upstream requires OAuth
-				this.requiresOAuth.add(upstreamName);
-				const authUrl = `${this.getBaseUrl()}/upstream-auth/start?upstream=${upstreamName}`;
-				throw new UpstreamAuthRequiredError(upstreamName, authUrl);
-			} catch (discoverErr) {
-				if (discoverErr instanceof UpstreamAuthRequiredError) {
-					throw discoverErr;
-				}
-
-				// OAuth discovery failed — re-throw original error
-				throw err;
-			}
+			return await withTimeout(
+				client.callTool({name: toolName, arguments: args}, CallToolResultSchema) as Promise<CallToolResult>,
+				this.toolTimeout,
+				`call ${upstreamName}/${toolName}`,
+			);
+		} finally {
+			await client.close().catch(noop);
 		}
+	}
+
+	/** Resolve a valid access token for an upstream, refreshing if needed.
+	 *  Returns undefined if the upstream is not known to require auth. */
+	private async resolveAccessToken(upstream: UpstreamConfig, userId: string): Promise<string | undefined> {
+		const token = this.store.getToken(userId, upstream.name);
+
+		// A stored token (even expired) proves this upstream requires OAuth
+		if (this.requiresOAuth.has(upstream.name) || token) {
+			this.requiresOAuth.add(upstream.name);
+			const authUrl = `${this.getBaseUrl()}/upstream-auth/start?upstream=${upstream.name}`;
+
+			if (!token) {
+				throw new UpstreamAuthRequiredError(upstream.name, authUrl);
+			}
+
+			if (!this.store.isTokenExpired(token)) {
+				return token.access_token;
+			}
+
+			if (token.refresh_token) {
+				await this.refreshUpstreamToken(upstream, userId, token.refresh_token);
+				return this.store.getToken(userId, upstream.name)!.access_token;
+			}
+
+			throw new UpstreamAuthRequiredError(upstream.name, authUrl);
+		}
+
+		// Not known to require OAuth — will connect without auth
+		return undefined;
+	}
+
+	private async connectClient(upstream: UpstreamConfig, accessToken?: string): Promise<Client> {
+		const headers: Record<string, string> = {};
+		if (accessToken) {
+			headers.Authorization = `Bearer ${accessToken}`;
+		}
+
+		const client = new Client({name: 'mcp-gateway', version: '1.0.0'});
+		const transport = new StreamableHTTPClientTransport(new URL(upstream.url), {
+			requestInit: {headers},
+		});
+		await withTimeout(
+			client.connect(transport as Parameters<Client['connect']>[0]),
+			this.discoveryTimeout,
+			`connect to ${upstream.name}`,
+		);
+		return client;
 	}
 
 	/** Check if an error looks like an authentication failure. */

@@ -43,8 +43,12 @@ export const createGatewayServer = (
 		}
 
 		// Gateway meta-tools
-		const unauthServers = upstreamManager.upstreams
-			.filter((u) => upstreamManager.upstreamRequiresOAuth(u.name, userId) && !store.hasToken(userId, u.name))
+		const upstreamStatuses = await Promise.all(upstreamManager.upstreams.map(async (u) => ({
+			name: u.name,
+			status: await upstreamManager.getUpstreamStatus(u.name, userId),
+		})));
+		const unauthServers = upstreamStatuses
+			.filter((u) => u.status.requiresOAuth && !u.status.connected)
 			.map((u) => u.name);
 		const authDesc = unauthServers.length > 0
 			? `Show authentication status and authenticate upstream MCP servers. Pass the "server" argument to check a single server (equivalent to calling gateway__{server}__auth). Servers requiring authentication: ${unauthServers.join(', ')}`
@@ -118,18 +122,14 @@ export const createGatewayServer = (
 			: upstreamManager.upstreams;
 
 		const statuses = await Promise.all(upstreamsToCheck.map(async (upstream) => {
-			const requiresOAuth = upstreamManager.upstreamRequiresOAuth(upstream.name, userId)
-				|| await upstreamManager.probeUpstreamAuth(upstream.name);
-			const hasToken = requiresOAuth
-				? store.hasToken(userId, upstream.name)
-				: true;
-			const authUrl = !hasToken
+			const status = await upstreamManager.getUpstreamStatus(upstream.name, userId);
+			const authUrl = !status.connected
 				? `${baseUrl}/upstream-auth/start?upstream=${upstream.name}&token=${accessToken}`
 				: undefined;
 
 			return {
 				name: upstream.name,
-				authenticated: hasToken,
+				authenticated: status.connected,
 				...(authUrl ? {authUrl} : {}),
 			};
 		}));

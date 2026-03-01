@@ -132,22 +132,17 @@ export const createApp = (
 			}
 
 			const upstreams = await Promise.all(config.upstreams.map(async (upstream) => {
-				const requiresOAuth = upstreamManager.upstreamRequiresOAuth(upstream.name, userId)
-					|| await upstreamManager.probeUpstreamAuth(upstream.name);
-				const hasToken = requiresOAuth
-					? store.hasToken(userId, upstream.name)
-					: true;
+				const status = await upstreamManager.getUpstreamStatus(upstream.name, userId);
 				const upstreamAuthUrl = `${getBaseUrl()}/upstream-auth/start?upstream=${upstream.name}&token=${token}`;
-				const authUrl = !hasToken ? upstreamAuthUrl : undefined;
-				const disconnectUrl = hasToken && requiresOAuth
+				const authUrl = !status.connected ? upstreamAuthUrl : undefined;
+				const disconnectUrl = status.connected && status.requiresOAuth
 					? `${getBaseUrl()}/dashboard/disconnect?upstream=${upstream.name}&token=${token}`
 					: undefined;
-				// Re-running the auth flow lets the upstream re-prompt for configuration
-				const reconfigureUrl = hasToken && requiresOAuth ? upstreamAuthUrl : undefined;
+				const reconfigureUrl = status.connected && status.requiresOAuth ? upstreamAuthUrl : undefined;
 
 				return {
 					name: upstream.name,
-					authenticated: hasToken,
+					authenticated: status.connected,
 					...(authUrl ? {authUrl} : {}),
 					...(disconnectUrl ? {disconnectUrl} : {}),
 					...(reconfigureUrl ? {reconfigureUrl} : {}),
