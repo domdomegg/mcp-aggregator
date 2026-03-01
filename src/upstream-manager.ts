@@ -323,7 +323,7 @@ export class UpstreamManager {
 			headers.Authorization = `Bearer ${accessToken}`;
 		}
 
-		const client = new Client({name: 'mcp-gateway', version: '1.0.0'});
+		const client = new Client({name: 'mcp-aggregator', version: '1.0.0'});
 		const transport = new StreamableHTTPClientTransport(new URL(upstream.url), {
 			requestInit: {headers},
 		});
@@ -442,7 +442,7 @@ export class UpstreamManager {
 			headers: {'Content-Type': 'application/json'},
 			body: JSON.stringify({
 				redirect_uris: [callbackUrl],
-				client_name: 'mcp-gateway',
+				client_name: 'mcp-aggregator',
 				token_endpoint_auth_method: 'none',
 				grant_types: ['authorization_code', 'refresh_token'],
 				response_types: ['code'],

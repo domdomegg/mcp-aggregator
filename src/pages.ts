@@ -1,7 +1,7 @@
 // eslint-disable-next-line @typescript-eslint/no-require-imports -- CJS module, can't use import.meta
 const pkg = require('../package.json') as {version: string; repository?: {url?: string}};
 const {version} = pkg;
-const repoUrl = pkg.repository?.url?.replace(/\.git$/, '').replace(/^git\+/, '') ?? 'https://github.com/domdomegg/mcp-gateway';
+const repoUrl = pkg.repository?.url?.replace(/\.git$/, '').replace(/^git\+/, '') ?? 'https://github.com/domdomegg/mcp-aggregator';
 
 const VARS_LIGHT = `--bg: #fafafa; --fg: #111; --muted: #888; --subtle: #666; --border: #eaeaea;
       --link: #666; --link-line: #ccc; --link-hover: #111;
@@ -25,13 +25,13 @@ const FOOTER = `footer { margin-top: 32px; font-size: 10px; color: var(--footer)
   footer a { color: var(--footer); text-decoration: none; }
   footer a:hover { color: var(--footer-hover); border-bottom: 1px solid var(--footer-hover); }`;
 
-const footerHtml = `<footer><a href="${escapeHtml(repoUrl)}">mcp-gateway</a> v${escapeHtml(version)}</footer>`;
+const footerHtml = `<footer><a href="${escapeHtml(repoUrl)}">mcp-aggregator</a> v${escapeHtml(version)}</footer>`;
 
 const pageHead = (title: string, extraCss: string) => `<!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8">
-<meta name="generator" content="mcp-gateway">
+<meta name="generator" content="mcp-aggregator">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${escapeHtml(title)}</title>
 <style>

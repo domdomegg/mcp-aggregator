@@ -2,18 +2,21 @@ import fs from 'node:fs';
 import {GatewayConfigSchema} from './types.js';
 import type {GatewayConfig} from './types.js';
 
-const DEFAULT_CONFIG_PATH = 'mcp-gateway.config.json';
+const DEFAULT_CONFIG_PATH = 'mcp-aggregator.config.json';
+const LEGACY_CONFIG_PATH = 'mcp-gateway.config.json';
 
 export const loadConfig = (input?: string): GatewayConfig => {
-	const raw = input ?? process.env.MCP_GATEWAY_CONFIG;
+	const raw = input ?? process.env.MCP_AGGREGATOR_CONFIG ?? process.env.MCP_GATEWAY_CONFIG;
 
 	let json: unknown;
 
 	if (!raw) {
 		if (fs.existsSync(DEFAULT_CONFIG_PATH)) {
 			json = JSON.parse(fs.readFileSync(DEFAULT_CONFIG_PATH, 'utf8'));
+		} else if (fs.existsSync(LEGACY_CONFIG_PATH)) {
+			json = JSON.parse(fs.readFileSync(LEGACY_CONFIG_PATH, 'utf8'));
 		} else {
-			throw new Error('No config found. Set MCP_GATEWAY_CONFIG or create mcp-gateway.config.json');
+			throw new Error('No config found. Set MCP_AGGREGATOR_CONFIG or create mcp-aggregator.config.json');
 		}
 	} else if (!raw.startsWith('{') && fs.existsSync(raw)) {
 		// If it looks like a file path, read it

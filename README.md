@@ -1,34 +1,34 @@
-# mcp-gateway
+# mcp-aggregator
 
 > Save your and your team's time configuring [MCP servers](https://modelcontextprotocol.io/) in every client — set up a single endpoint that combines all your MCPs behind one login.
 
 If you run several remote MCP servers (e.g. [Gmail](https://github.com/domdomegg/gmail-mcp), [Google Calendar](https://github.com/domdomegg/google-cal-mcp), [Airtable](https://github.com/domdomegg/airtable-mcp-server) via [mcp-auth-wrapper](https://github.com/domdomegg/mcp-auth-wrapper)) and multiple MCP clients (e.g. Claude.ai, Claude Code, VS Code), every client needs to be configured with each server separately. Add a new server? Update every client. Want your team to use the same set of tools? Configure each person's machine.
 
-mcp-gateway solves this: you configure your upstream servers once in the gateway, then point all your MCP clients at one URL. When a user connects, they log in via your existing identity provider (Google Workspace, Microsoft Entra ID, Okta, Auth0, Keycloak, etc.). The gateway then presents them with every tool from every upstream, namespaced and ready to use (e.g. `gmail__send_email`, `calendar__create_event`). If an upstream requires its own OAuth (like a Google API), the user is prompted to authorize it on first use — the gateway stores and refreshes those tokens automatically from then on.
+mcp-aggregator solves this: you configure your upstream servers once, then point all your MCP clients at one URL. When a user connects, they log in via your existing identity provider (Google Workspace, Microsoft Entra ID, Okta, Auth0, Keycloak, etc.). The aggregator then presents them with every tool from every upstream, namespaced and ready to use (e.g. `gmail__send_email`, `calendar__create_event`). If an upstream requires its own OAuth (like a Google API), the user is prompted to authorize it on first use — the aggregator stores and refreshes those tokens automatically from then on.
 
 ```mermaid
 graph LR
-    A["MCP Client<br/>(Claude, Cursor, etc.)"] -->|single URL, single login| G["mcp-gateway"]
+    A["MCP Client<br/>(Claude, Cursor, etc.)"] -->|single URL, single login| G["mcp-aggregator"]
     G --> U1["Gmail MCP"]
     G --> U2["Google Calendar MCP"]
     G --> U3["Airtable MCP"]
     G --> U4["..."]
 ```
 
-Under the hood, mcp-gateway exposes a [streamable HTTP](https://modelcontextprotocol.io/specification/2025-06-18/basic/transports#streamable-http) endpoint with [OAuth 2.1](https://modelcontextprotocol.io/specification/2025-06-18/basic/authorization) authentication. Tools from all upstreams are namespaced and served through a single `/mcp` endpoint. Per-user upstream OAuth tokens are stored in SQLite. All gateway auth state is stateless (encrypted sealed tokens), so there's no session database to manage.
+Under the hood, mcp-aggregator exposes a [streamable HTTP](https://modelcontextprotocol.io/specification/2025-06-18/basic/transports#streamable-http) endpoint with [OAuth 2.1](https://modelcontextprotocol.io/specification/2025-06-18/basic/authorization) authentication. Tools from all upstreams are namespaced and served through a single `/mcp` endpoint. Per-user upstream OAuth tokens are stored in SQLite. All auth state is stateless (encrypted sealed tokens), so there's no session database to manage.
 
 ## Usage
 
-Set `MCP_GATEWAY_CONFIG` to a JSON config object and run:
+Set `MCP_AGGREGATOR_CONFIG` to a JSON config object and run:
 
 ```bash
-MCP_GATEWAY_CONFIG='{
+MCP_AGGREGATOR_CONFIG='{
   "auth": {"issuer": "https://auth.example.com"},
   "upstreams": [
     {"name": "gmail", "url": "https://gmail-mcp.example.com/mcp"},
     {"name": "calendar", "url": "https://calendar-mcp.example.com/mcp"}
   ]
-}' npx -y mcp-gateway
+}' npx -y mcp-aggregator
 ```
 
 This starts an HTTP MCP server on localhost:3000. When a user connects, they'll be redirected to your login provider. After logging in, they can use tools from all configured upstreams. If an upstream requires its own OAuth, the user is prompted to authorize on first use.
@@ -39,13 +39,13 @@ This starts an HTTP MCP server on localhost:3000. When a user connects, they'll 
 The env var can also point to a file path:
 
 ```bash
-MCP_GATEWAY_CONFIG=/path/to/config.json npx -y mcp-gateway
+MCP_AGGREGATOR_CONFIG=/path/to/config.json npx -y mcp-aggregator
 ```
 
-Or create `mcp-gateway.config.json` in the working directory — it's picked up automatically:
+Or create `mcp-aggregator.config.json` in the working directory — it's picked up automatically:
 
 ```bash
-npx -y mcp-gateway
+npx -y mcp-aggregator
 ```
 
 </details>
@@ -54,7 +54,7 @@ npx -y mcp-gateway
 <summary>Running with Docker</summary>
 
 ```bash
-docker run -e 'MCP_GATEWAY_CONFIG={"auth":{"issuer":"...","clientId":"..."},"upstreams":[...]}' -p 3000:3000 ghcr.io/domdomegg/mcp-gateway
+docker run -e 'MCP_AGGREGATOR_CONFIG={"auth":{"issuer":"...","clientId":"..."},"upstreams":[...]}' -p 3000:3000 ghcr.io/domdomegg/mcp-gateway
 ```
 
 </details>
@@ -66,7 +66,7 @@ Only `auth.issuer` and `upstreams` are required. Everything else has sensible de
 | Field | Required | Description |
 |-------|----------|-------------|
 | `auth.issuer` | Yes | Your login provider's URL. Must support [OpenID Connect discovery](https://openid.net/specs/openid-connect-discovery-1_0.html). |
-| `auth.clientId` | No | Client ID registered with your login provider. Defaults to `"mcp-gateway"`. |
+| `auth.clientId` | No | Client ID registered with your login provider. Defaults to `"mcp-aggregator"`. |
 | `auth.clientSecret` | No | Client secret. Omit for public clients. |
 | `auth.scopes` | No | Scopes to request during login. Defaults to `["openid"]`. |
 | `auth.userClaim` | No | Which field from the login token identifies the user. Defaults to `"sub"`. |
@@ -86,7 +86,7 @@ A full example:
 {
   "auth": {
     "issuer": "https://keycloak.example.com/realms/myrealm",
-    "clientId": "mcp-gateway",
+    "clientId": "mcp-aggregator",
     "clientSecret": "optional-secret",
     "scopes": ["openid"],
     "userClaim": "sub"
@@ -95,10 +95,10 @@ A full example:
     { "name": "gmail", "url": "https://gmail-mcp.example.com/mcp" },
     { "name": "calendar", "url": "https://calendar-mcp.example.com/mcp" }
   ],
-  "storage": "/data/gateway.sqlite",
+  "storage": "/data/aggregator.sqlite",
   "port": 3000,
   "host": "0.0.0.0",
-  "issuerUrl": "https://gateway.mcp.home.example.com",
+  "issuerUrl": "https://mcp.example.com",
   "secret": "some-persistent-secret",
   "discoveryTimeout": 5000,
   "toolTimeout": 60000
@@ -123,7 +123,7 @@ A full example:
 }
 ```
 
-Create OAuth 2.0 credentials in the [Google Cloud Console](https://console.cloud.google.com/apis/credentials). Choose "Web application", add `https://<gateway-host>/callback` as an authorized redirect URI. To restrict access to your organization, configure the OAuth consent screen as "Internal".
+Create OAuth 2.0 credentials in the [Google Cloud Console](https://console.cloud.google.com/apis/credentials). Choose "Web application", add `https://<host>/callback` as an authorized redirect URI. To restrict access to your organization, configure the OAuth consent screen as "Internal".
 
 </details>
 
@@ -143,7 +143,7 @@ Create OAuth 2.0 credentials in the [Google Cloud Console](https://console.cloud
 }
 ```
 
-Register an application in the [Azure portal](https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps). Add `https://<gateway-host>/callback` as a redirect URI under "Web". Create a client secret under "Certificates & secrets". Replace `<tenant-id>` with your directory (tenant) ID.
+Register an application in the [Azure portal](https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps). Add `https://<host>/callback` as a redirect URI under "Web". Create a client secret under "Certificates & secrets". Replace `<tenant-id>` with your directory (tenant) ID.
 
 </details>
 
@@ -163,7 +163,7 @@ Register an application in the [Azure portal](https://portal.azure.com/#view/Mic
 }
 ```
 
-Create a Web Application in Okta. Set the sign-in redirect URI to `https://<gateway-host>/callback`. The issuer URL is your Okta org URL (or a custom authorization server URL if you use one).
+Create a Web Application in Okta. Set the sign-in redirect URI to `https://<host>/callback`. The issuer URL is your Okta org URL (or a custom authorization server URL if you use one).
 
 </details>
 
@@ -182,7 +182,7 @@ Create a Web Application in Okta. Set the sign-in redirect URI to `https://<gate
 }
 ```
 
-Create an OpenID Connect client in your Keycloak realm with client ID `mcp-gateway` (or set `auth.clientId` to match). Set the redirect URI to `https://<gateway-host>/callback`. Users are identified by `sub` (Keycloak user ID) by default. Set `auth.userClaim` to `preferred_username` to match by username instead.
+Create an OpenID Connect client in your Keycloak realm with client ID `mcp-aggregator` (or set `auth.clientId` to match). Set the redirect URI to `https://<host>/callback`. Users are identified by `sub` (Keycloak user ID) by default. Set `auth.userClaim` to `preferred_username` to match by username instead.
 
 </details>
 
@@ -202,7 +202,7 @@ Create an OpenID Connect client in your Keycloak realm with client ID `mcp-gatew
 }
 ```
 
-Create a Regular Web Application in Auth0. Add `https://<gateway-host>/callback` as an allowed callback URL. Set `auth.clientId` to the Auth0 application's client ID. The `sub` claim in Auth0 is typically prefixed with the connection type (e.g. `auth0|abc123`).
+Create a Regular Web Application in Auth0. Add `https://<host>/callback` as an allowed callback URL. Set `auth.clientId` to the Auth0 application's client ID. The `sub` claim in Auth0 is typically prefixed with the connection type (e.g. `auth0|abc123`).
 
 </details>
 
@@ -222,7 +222,7 @@ Create a Regular Web Application in Auth0. Add `https://<gateway-host>/callback`
 }
 ```
 
-Create an OAuth2/OpenID Provider in Authentik with client ID `mcp-gateway` (or set `auth.clientId` to match). Set the redirect URI to `https://<gateway-host>/callback`.
+Create an OAuth2/OpenID Provider in Authentik with client ID `mcp-aggregator` (or set `auth.clientId` to match). Set the redirect URI to `https://<host>/callback`.
 
 </details>
 

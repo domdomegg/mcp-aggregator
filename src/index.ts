@@ -17,7 +17,7 @@ const main = () => {
 	const port = config.port ?? 3000;
 	const host = config.host ?? '0.0.0.0';
 	const server = app.listen(port, host, () => {
-		console.log(`mcp-gateway listening on ${host}:${port}`);
+		console.log(`mcp-aggregator listening on ${host}:${port}`);
 		console.log(`Auth: ${config.auth.issuer}`);
 		console.log(`Upstreams: ${config.upstreams.map((u) => u.name).join(', ')}`);
 		console.log(`Storage: ${config.storage ?? 'memory'}`);

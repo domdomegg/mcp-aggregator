@@ -123,4 +123,5 @@ dist/
 
 # local config / data
 mcp-gateway.config.json
+mcp-aggregator.config.json
 *.sqlite

@@ -16,7 +16,7 @@ export const createGatewayServer = (
 	accessToken: string,
 ): Server => {
 	const server = new Server(
-		{name: 'mcp-gateway', version: '1.0.0'},
+		{name: 'mcp-aggregator', version: '1.0.0'},
 		{capabilities: {tools: {}}},
 	);
 
