@@ -59,6 +59,33 @@ docker run -e 'MCP_AGGREGATOR_CONFIG={"auth":{"issuer":"...","clientId":"..."},"
 
 </details>
 
+<details>
+<summary>Running on Kubernetes</summary>
+
+The Docker image runs as `USER node` (uid 1000). If you use a PersistentVolumeClaim for SQLite storage, the volume mount will be owned by root by default, so the `node` user can't write to it. Fix this by setting `fsGroup: 1000` in the pod's security context:
+
+```yaml
+apiVersion: v1
+kind: Pod
+spec:
+  securityContext:
+    fsGroup: 1000
+  containers:
+    - name: mcp-aggregator
+      image: ghcr.io/domdomegg/mcp-aggregator
+      volumeMounts:
+        - name: data
+          mountPath: /data
+  volumes:
+    - name: data
+      persistentVolumeClaim:
+        claimName: mcp-aggregator-data
+```
+
+This ensures Kubernetes sets the group ownership of the mounted volume to gid 1000, allowing the `node` user to read and write the SQLite database.
+
+</details>
+
 ### Config
 
 Only `auth.issuer` and `upstreams` are required. Everything else has sensible defaults.
