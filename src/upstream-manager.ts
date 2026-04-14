@@ -41,6 +41,7 @@ type UpstreamOAuthMeta = {
 	authorizationEndpoint: string;
 	tokenEndpoint: string;
 	registrationEndpoint?: string | undefined;
+	scopes?: string[] | undefined;
 };
 
 type UpstreamAuthState = {
@@ -156,6 +157,9 @@ export class UpstreamManager {
 		url.searchParams.set('state', sealedState);
 		url.searchParams.set('code_challenge', codeChallenge);
 		url.searchParams.set('code_challenge_method', 'S256');
+		if (meta.scopes) {
+			url.searchParams.set('scope', meta.scopes.join(' '));
+		}
 
 		this.requiresOAuth.add(upstreamName);
 		return url.toString();
@@ -370,6 +374,7 @@ export class UpstreamManager {
 		const baseUrl = `${serverUrl.protocol}//${serverUrl.host}`;
 
 		let authServerOrigin: string | undefined;
+		let resourceScopes: string[] | undefined;
 
 		// RFC 9728: discover protected resource metadata
 		// Per Section 3.1, when the resource identifier contains a path component,
@@ -381,10 +386,13 @@ export class UpstreamManager {
 				signal: AbortSignal.timeout(this.discoveryTimeout),
 			});
 			if (prmRes.ok) {
-				const prm = await prmRes.json() as {authorization_servers?: string[]};
+				const prm = await prmRes.json() as {authorization_servers?: string[]; scopes_supported?: string[]};
 				const authServerUrl = prm.authorization_servers?.[0];
 				if (authServerUrl) {
 					authServerOrigin = new URL(authServerUrl).origin;
+				}
+				if (prm.scopes_supported && prm.scopes_supported.length > 0) {
+					resourceScopes = prm.scopes_supported;
 				}
 			}
 		} catch {
@@ -406,12 +414,17 @@ export class UpstreamManager {
 			authorization_endpoint: string;
 			token_endpoint: string;
 			registration_endpoint?: string;
+			scopes_supported?: string[];
 		};
+
+		// Prefer scopes from the protected resource (RFC 9728), fall back to the authorization server (RFC 8414).
+		const scopes = resourceScopes ?? asMeta.scopes_supported;
 
 		const meta: UpstreamOAuthMeta = {
 			authorizationEndpoint: asMeta.authorization_endpoint,
 			tokenEndpoint: asMeta.token_endpoint,
 			registrationEndpoint: asMeta.registration_endpoint,
+			scopes: scopes && scopes.length > 0 ? scopes : undefined,
 		};
 
 		this.oauthMetaCache.set(upstream.name, {meta, expiresAt: Date.now() + 3_600_000});
