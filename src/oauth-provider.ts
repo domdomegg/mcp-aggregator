@@ -13,6 +13,7 @@ const ACCESS_TOKEN_TTL_MS = 3_600_000; // 1 hour
 const REFRESH_TOKEN_TTL_MS = 30 * 24 * 3_600_000; // 30 days
 const AUTH_CODE_TTL_MS = 300_000; // 5 minutes
 const PENDING_AUTH_TTL_MS = 600_000; // 10 minutes
+const WEB_LOGIN_TTL_MS = 600_000; // 10 minutes — for the /login → /login/callback round-trip
 
 /** Data encoded into the upstream state parameter. */
 type PendingAuthPayload = {
@@ -44,6 +45,13 @@ type TokenPayload = {
 	clientId: string;
 	userId: string;
 	scopes: string[];
+	expiresAt: number;
+};
+
+/** State for the standalone /login → /login/callback flow. */
+type WebLoginPayload = {
+	type: 'web_login';
+	upstreamCodeVerifier: string;
 	expiresAt: number;
 };
 
@@ -236,5 +244,19 @@ export class GatewayOAuthProvider implements OAuthServerProvider {
 			scopes: [],
 			expiresAt: Date.now() + ACCESS_TOKEN_TTL_MS,
 		}, this.key);
+	}
+
+	/** Seal a PKCE verifier into a state param for the /login flow. */
+	sealWebLogin(upstreamCodeVerifier: string): string {
+		return seal<WebLoginPayload>({
+			type: 'web_login',
+			upstreamCodeVerifier,
+			expiresAt: Date.now() + WEB_LOGIN_TTL_MS,
+		}, this.key);
+	}
+
+	/** Unseal the state returned to /login/callback. */
+	unsealWebLogin(state: string): WebLoginPayload | undefined {
+		return unseal<WebLoginPayload>(state, this.key, 'web_login');
 	}
 }

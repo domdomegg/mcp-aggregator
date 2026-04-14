@@ -12,7 +12,7 @@ import type {UpstreamManager} from './upstream-manager.js';
 import type {GatewayConfig} from './types.js';
 import {createGatewayServer} from './gateway-server.js';
 import {
-	renderSuccessPage, renderErrorPage, renderDashboardPage, renderAuthCompletePage,
+	renderLandingPage, renderSuccessPage, renderErrorPage, renderDashboardPage, renderAuthCompletePage,
 } from './pages.js';
 
 const getString = (value: unknown): string | undefined =>
@@ -112,6 +112,54 @@ export const createApp = (
 		} catch (err) {
 			console.error('Callback error:', err);
 			res.status(500).send('Authentication failed');
+		}
+	});
+
+	// Landing page
+	app.get('/', (_req, res) => {
+		const installUrl = `https://adamjones.me/install-mcp/?url=${encodeURIComponent(mcpUrl.href)}`;
+		res.send(renderLandingPage(installUrl));
+	});
+
+	// Web login: /login → upstream IDP → /login/callback → /dashboard
+	app.get('/login', (_req, res) => {
+		const {codeVerifier, codeChallenge} = oidcClient.generateCodeVerifierAndChallenge();
+		const state = provider.sealWebLogin(codeVerifier);
+		const callbackUrl = `${getBaseUrl()}/login/callback`;
+
+		oidcClient.buildAuthorizeUrl({redirectUri: callbackUrl, state, codeChallenge})
+			.then((url) => {
+				res.redirect(url);
+			})
+			.catch((err: unknown) => {
+				console.error('Login error:', err);
+				res.status(500).send(renderErrorPage('Failed to initiate login'));
+			});
+	});
+
+	app.get('/login/callback', async (req, res) => {
+		try {
+			const code = getString(req.query.code);
+			const state = getString(req.query.state);
+			if (!code || !state) {
+				res.status(400).send(renderErrorPage('Missing code or state parameter'));
+				return;
+			}
+
+			const payload = provider.unsealWebLogin(state);
+			if (!payload) {
+				res.status(400).send(renderErrorPage('Invalid or expired login session'));
+				return;
+			}
+
+			const callbackUrl = `${getBaseUrl()}/login/callback`;
+			const {userId} = await oidcClient.exchangeCode(code, callbackUrl, payload.upstreamCodeVerifier);
+
+			const token = provider.createDashboardToken(userId);
+			res.redirect(`${getBaseUrl()}/dashboard?token=${encodeURIComponent(token)}`);
+		} catch (err) {
+			console.error('Login callback error:', err);
+			res.status(500).send(renderErrorPage('Authentication failed'));
 		}
 	});
 

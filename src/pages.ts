@@ -50,6 +50,23 @@ const CENTER_CSS = `h1 { margin-bottom: 0; }
 const BTN_CSS = `.btn { display: inline-block; margin-top: 20px; font: inherit; font-size: 12px; font-weight: 600; padding: 8px 20px; border-radius: 4px; border: none; cursor: pointer; text-decoration: none; background: var(--btn-bg); color: var(--btn-fg); }
   .btn:hover { background: var(--btn-hover); }`;
 
+const LANDING_CSS = `h1 { margin-bottom: 16px; }
+  .msg { font-size: 13px; line-height: 1.6; color: var(--subtle); margin-bottom: 16px; }
+  .btn { display: inline-block; font: inherit; font-size: 12px; font-weight: 600; padding: 8px 20px; border-radius: 4px; border: none; cursor: pointer; text-decoration: none; background: var(--btn-bg); color: var(--btn-fg); }
+  .btn:hover { background: var(--btn-hover); }
+  .secondary { font-size: 13px; color: var(--subtle); line-height: 1.6; margin-top: 48px; }
+  .secondary a { color: var(--fg); text-decoration: underline; }`;
+
+export const renderLandingPage = (installUrl: string): string => `${pageHead('mcp-aggregator', LANDING_CSS)}
+<body>
+<h1>mcp-aggregator</h1>
+<p class="msg">To connect, add this server to your MCP client — you'll be prompted to log in and connect any required services.</p>
+<a class="btn" href="${escapeHtml(installUrl)}">install in client</a>
+<p class="secondary">Already connected? <a href="/login">Sign in</a> to manage your connected services.</p>
+${footerHtml}
+</body>
+</html>`;
+
 export const renderSuccessPage = (upstreamName: string): string => `${pageHead('Authentication successful', CENTER_CSS)}
 <body>
 <div class="center">
