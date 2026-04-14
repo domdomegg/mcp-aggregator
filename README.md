@@ -99,6 +99,8 @@ Only `auth.issuer` and `upstreams` are required. Everything else has sensible de
 | `auth.userClaim` | No | Which field from the login token identifies the user. Defaults to `"sub"`. |
 | `upstreams[].name` | Yes | Namespace prefix for tools (e.g. `"gmail"`). |
 | `upstreams[].url` | Yes | Streamable HTTP endpoint URL. |
+| `upstreams[].clientId` | No | Pre-registered OAuth client ID. If set, Dynamic Client Registration is skipped. Use for upstreams that don't support DCR (e.g. Slack). |
+| `upstreams[].clientSecret` | No | Pre-registered OAuth client secret, used alongside `clientId` for confidential clients. |
 | `storage` | No | Where to store per-user upstream tokens: `"memory"` (default) or a SQLite file path. |
 | `port` | No | Port to listen on. Defaults to `3000`. |
 | `host` | No | Host to bind to. Defaults to `"0.0.0.0"`. |

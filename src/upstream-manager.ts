@@ -420,8 +420,14 @@ export class UpstreamManager {
 	}
 
 	/** Register gateway as OAuth client with upstream (DCR), or fall back to
-	 *  IndieAuth-style client_id (gateway base URL) when DCR is unavailable. Cached in SQLite. */
+	 *  IndieAuth-style client_id (gateway base URL) when DCR is unavailable.
+	 *  If the upstream config specifies a clientId, use that directly and skip DCR.
+	 *  Cached in SQLite (except for pre-configured clients, which always read from config). */
 	private async ensureRegistration(upstream: UpstreamConfig): Promise<{clientId: string; clientSecret: string | null}> {
+		if (upstream.clientId) {
+			return {clientId: upstream.clientId, clientSecret: upstream.clientSecret ?? null};
+		}
+
 		const existing = this.store.getRegistration(upstream.name);
 		if (existing) {
 			return {clientId: existing.client_id, clientSecret: existing.client_secret};

@@ -13,6 +13,10 @@ export const UpstreamConfigSchema = z.object({
 	name: z.string().min(1),
 	/** sHTTP endpoint URL (e.g. "https://gmail.mcp.home.adamjones.me/mcp") */
 	url: z.url(),
+	/** Pre-registered OAuth client_id. If set, Dynamic Client Registration is skipped. */
+	clientId: z.string().min(1).optional(),
+	/** Pre-registered OAuth client_secret (only used alongside clientId). */
+	clientSecret: z.string().min(1).optional(),
 });
 
 export const GatewayConfigSchema = z.object({
