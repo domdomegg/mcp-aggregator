@@ -391,6 +391,7 @@ export class UpstreamManager {
 				if (authServerUrl) {
 					authServerOrigin = new URL(authServerUrl).origin;
 				}
+
 				if (prm.scopes_supported && prm.scopes_supported.length > 0) {
 					resourceScopes = prm.scopes_supported;
 				}
