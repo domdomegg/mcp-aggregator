@@ -1,6 +1,6 @@
 {
   "name": "mcp-aggregator",
-  "version": "2.2.1",
+  "version": "2.2.2",
   "description": "MCP aggregator: multiple upstream MCP servers behind a single endpoint with per-user OAuth.",
   "license": "MIT",
   "author": "Adam Jones (domdomegg)",
