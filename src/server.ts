@@ -4,6 +4,7 @@ import type {OAuthClientInformationFull} from '@modelcontextprotocol/sdk/shared/
 import type {AuthorizationParams} from '@modelcontextprotocol/sdk/server/auth/provider.js';
 import {mcpAuthRouter, getOAuthProtectedResourceMetadataUrl} from '@modelcontextprotocol/sdk/server/auth/router.js';
 import {requireBearerAuth} from '@modelcontextprotocol/sdk/server/auth/middleware/bearerAuth.js';
+import {InvalidTokenError} from '@modelcontextprotocol/sdk/server/auth/errors.js';
 import express from 'express';
 import type {GatewayOAuthProvider} from './oauth-provider.js';
 import type {OidcClient} from './oidc-client.js';
@@ -199,6 +200,11 @@ export const createApp = (
 
 			res.send(renderDashboardPage(upstreams));
 		} catch (err) {
+			if (err instanceof InvalidTokenError) {
+				res.redirect(`${getBaseUrl()}/login`);
+				return;
+			}
+
 			console.error('Dashboard error:', err);
 			res.status(500).send(renderErrorPage('Failed to load dashboard'));
 		}
@@ -225,6 +231,11 @@ export const createApp = (
 			store.deleteToken(userId, upstreamName);
 			res.redirect(`${getBaseUrl()}/dashboard?token=${token}`);
 		} catch (err) {
+			if (err instanceof InvalidTokenError) {
+				res.redirect(`${getBaseUrl()}/login`);
+				return;
+			}
+
 			console.error('Dashboard disconnect error:', err);
 			res.status(500).send(renderErrorPage('Failed to disconnect upstream'));
 		}
@@ -251,6 +262,11 @@ export const createApp = (
 			const authUrl = await upstreamManager.startUpstreamAuth(userId, upstreamName, token);
 			res.redirect(authUrl);
 		} catch (err) {
+			if (err instanceof InvalidTokenError) {
+				res.redirect(`${getBaseUrl()}/login`);
+				return;
+			}
+
 			console.error('Upstream auth start error:', err);
 			res.status(500).send(renderErrorPage('Failed to start upstream authentication'));
 		}
