@@ -204,6 +204,7 @@ export const createApp = (
 				res.redirect(`${getBaseUrl()}/login`);
 				return;
 			}
+
 			console.error('Dashboard error:', err);
 			res.status(500).send(renderErrorPage('Failed to load dashboard'));
 		}
@@ -234,6 +235,7 @@ export const createApp = (
 				res.redirect(`${getBaseUrl()}/login`);
 				return;
 			}
+
 			console.error('Dashboard disconnect error:', err);
 			res.status(500).send(renderErrorPage('Failed to disconnect upstream'));
 		}
@@ -264,6 +266,7 @@ export const createApp = (
 				res.redirect(`${getBaseUrl()}/login`);
 				return;
 			}
+
 			console.error('Upstream auth start error:', err);
 			res.status(500).send(renderErrorPage('Failed to start upstream authentication'));
 		}
