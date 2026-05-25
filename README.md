@@ -98,6 +98,7 @@ Only `auth.issuer` and `upstreams` are required. Everything else has sensible de
 | `auth.scopes` | No | Scopes to request during login. Defaults to `["openid"]`. |
 | `auth.userClaim` | No | Which field from the login token identifies the user. Defaults to `"sub"`. |
 | `upstreams[].name` | Yes | Namespace prefix for tools (e.g. `"gmail"`). |
+| `upstreams[].displayName` | No | Human-readable name used to prefix tool titles, e.g. `"Gmail"` shows tools as "Gmail: List drafts". Defaults to the upstream's advertised server title, then `name`. |
 | `upstreams[].url` | Yes | Streamable HTTP endpoint URL. |
 | `upstreams[].clientId` | No | Pre-registered OAuth client ID. If set, Dynamic Client Registration is skipped. Use for upstreams that don't support DCR (e.g. Slack). |
 | `upstreams[].clientSecret` | No | Pre-registered OAuth client secret, used alongside `clientId` for confidential clients. |
