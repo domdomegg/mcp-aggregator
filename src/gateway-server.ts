@@ -24,17 +24,22 @@ export const createGatewayServer = (
 		const tools = [];
 
 		const results = await Promise.allSettled(upstreamManager.upstreams.map(async (upstream) => {
-			const upstreamTools = await upstreamManager.listTools(upstream.name, userId);
-			return {upstream, tools: upstreamTools};
+			const {tools: upstreamTools, serverInfo} = await upstreamManager.listTools(upstream.name, userId);
+			return {upstream, tools: upstreamTools, serverInfo};
 		}));
 
 		for (const result of results) {
 			if (result.status === 'fulfilled') {
+				const {upstream, serverInfo} = result.value;
+				const displayName = upstream.displayName ?? serverInfo?.title ?? upstream.name;
 				for (const tool of result.value.tools) {
+					const toolTitle = tool.title ?? tool.annotations?.title ?? tool.name;
 					tools.push({
 						...tool,
-						name: `${result.value.upstream.name}__${tool.name}`,
-						description: `[${result.value.upstream.name}] ${tool.description ?? ''}`,
+						name: `${upstream.name}__${tool.name}`,
+						title: `${displayName}: ${toolTitle}`,
+						description: `[${upstream.name}] ${tool.description ?? ''}`,
+						...(tool.annotations ? {annotations: {...tool.annotations, title: `${displayName}: ${tool.annotations.title ?? toolTitle}`}} : {}),
 					});
 				}
 			} else {

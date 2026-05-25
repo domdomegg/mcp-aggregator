@@ -11,6 +11,8 @@ export const AuthConfigSchema = z.object({
 export const UpstreamConfigSchema = z.object({
 	/** Used as namespace prefix for tools (e.g. "gmail-mcp") */
 	name: z.string().min(1),
+	/** Human-readable name used to prefix tool titles (e.g. "Gmail" → "Gmail: List drafts"). Defaults to the upstream's advertised server title, then `name`. */
+	displayName: z.string().min(1).optional(),
 	/** sHTTP endpoint URL (e.g. "https://gmail.mcp.home.adamjones.me/mcp") */
 	url: z.url(),
 	/** Pre-registered OAuth client_id. If set, Dynamic Client Registration is skipped. */

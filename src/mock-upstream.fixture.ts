@@ -16,6 +16,8 @@ import express from 'express';
 
 export type MockUpstreamOptions = {
 	name: string;
+	/** Optional human-readable title advertised in the server's serverInfo */
+	title?: string;
 	/** If true, requires Bearer token and exposes OAuth discovery endpoints */
 	requireAuth?: boolean;
 	/** Accepted bearer tokens (if requireAuth) */
@@ -33,10 +35,10 @@ export type MockUpstream = {
 };
 
 // eslint-disable-next-line @typescript-eslint/no-deprecated -- Using low-level Server to match gateway pattern
-const createMcpServer = (name: string): Server => {
+const createMcpServer = (name: string, title?: string): Server => {
 	// eslint-disable-next-line @typescript-eslint/no-deprecated
 	const server = new Server(
-		{name, version: '1.0.0'},
+		{name, ...(title ? {title} : {}), version: '1.0.0'},
 		{capabilities: {tools: {}}},
 	);
 
@@ -44,6 +46,7 @@ const createMcpServer = (name: string): Server => {
 		tools: [
 			{
 				name: 'echo',
+				title: 'Echo',
 				description: `[${name}] Echoes back the input`,
 				inputSchema: {type: 'object' as const, properties: {message: {type: 'string'}}, required: ['message']},
 			},
@@ -51,6 +54,7 @@ const createMcpServer = (name: string): Server => {
 				name: 'ping',
 				description: `[${name}] Returns pong`,
 				inputSchema: {type: 'object' as const, properties: {}},
+				annotations: {title: 'Ping', readOnlyHint: true},
 			},
 			{
 				name: 'get_server_name',
@@ -195,7 +199,7 @@ export const createMockUpstream = async (opts: MockUpstreamOptions): Promise<Moc
 		}
 
 		const transport = new StreamableHTTPServerTransport({enableJsonResponse: true});
-		const mcpServer = createMcpServer(opts.name);
+		const mcpServer = createMcpServer(opts.name, opts.title);
 		await mcpServer.connect(transport as unknown as Transport);
 		await transport.handleRequest(req, res);
 	});

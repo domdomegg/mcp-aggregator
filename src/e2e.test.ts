@@ -116,8 +116,8 @@ beforeAll(async () => {
 	oidcUrl = oidc.url;
 
 	// 2. Mock upstreams
-	publicUpstream = await createMockUpstream({name: 'public-server'});
-	oauthUpstream = await createMockUpstream({name: 'oauth-server', requireAuth: true});
+	publicUpstream = await createMockUpstream({name: 'public-server', title: 'Public Server'});
+	oauthUpstream = await createMockUpstream({name: 'oauth-server', title: 'OAuth Mock', requireAuth: true});
 
 	// 3. Gateway config
 	const config: GatewayConfig = {
@@ -128,7 +128,7 @@ beforeAll(async () => {
 		},
 		upstreams: [
 			{name: 'public-server', url: `${publicUpstream.url}/mcp`},
-			{name: 'oauth-server', url: `${oauthUpstream.url}/mcp`},
+			{name: 'oauth-server', displayName: 'OAuth Server', url: `${oauthUpstream.url}/mcp`},
 		],
 		storage: 'memory',
 		secret: 'test-secret-key-for-sealing',
@@ -325,7 +325,7 @@ describe('full OAuth flow + tool aggregation', () => {
 		// List tools
 		const toolsRes = await mcpCall(token, 'tools/list', {}, 2);
 		expect(toolsRes.status).toBe(200);
-		const toolsBody = await toolsRes.json() as {result: {tools: {name: string}[]}};
+		const toolsBody = await toolsRes.json() as {result: {tools: {name: string; title?: string; annotations?: {title?: string; readOnlyHint?: boolean}}[]}};
 		const toolNames = toolsBody.result.tools.map((t) => t.name);
 
 		// Should have namespaced tools from public upstream
@@ -335,6 +335,13 @@ describe('full OAuth flow + tool aggregation', () => {
 
 		// Should have meta tool
 		expect(toolNames).toContain('gateway__auth');
+
+		// Titles are prefixed with the upstream's display name (serverInfo title here, since no displayName is configured)
+		const findTool = (name: string) => toolsBody.result.tools.find((t) => t.name === name);
+		expect(findTool('public-server__echo')?.title).toBe('Public Server: Echo');
+		expect(findTool('public-server__ping')?.title).toBe('Public Server: Ping');
+		expect(findTool('public-server__ping')?.annotations).toEqual({title: 'Public Server: Ping', readOnlyHint: true});
+		expect(findTool('public-server__get_server_name')?.title).toBe('Public Server: get_server_name');
 
 		// Call public-server__ping
 		const pingRes = await mcpCall(token, 'tools/call', {name: 'public-server__ping', arguments: {}}, 3);
@@ -422,6 +429,12 @@ describe('upstream OAuth token management', () => {
 		expect(nameRes.status).toBe(200);
 		const nameBody = await nameRes.json() as {result: {content: {text: string}[]}};
 		expect(nameBody.result.content[0]!.text).toBe('oauth-server');
+
+		// Tool titles use the configured displayName, which takes precedence over the upstream's serverInfo title
+		const toolsRes = await mcpCall(token, 'tools/list', {}, 4);
+		const toolsBody = await toolsRes.json() as {result: {tools: {name: string; title?: string}[]}};
+		const oauthEcho = toolsBody.result.tools.find((t) => t.name === 'oauth-server__echo');
+		expect(oauthEcho?.title).toBe('OAuth Server: Echo');
 	}, 30_000);
 
 	test('gateway__unauth removes stored token and tool calls require re-auth', async () => {

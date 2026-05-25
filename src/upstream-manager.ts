@@ -2,7 +2,7 @@ import {createHash, randomBytes} from 'node:crypto';
 import {Client} from '@modelcontextprotocol/sdk/client/index.js';
 import {StreamableHTTPClientTransport} from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import {CallToolResultSchema} from '@modelcontextprotocol/sdk/types.js';
-import type {Tool, CallToolResult} from '@modelcontextprotocol/sdk/types.js';
+import type {Tool, CallToolResult, Implementation} from '@modelcontextprotocol/sdk/types.js';
 import {deriveKey, seal, unseal} from './crypto.js';
 import type {TokenStore} from './token-store.js';
 import type {UpstreamConfig, GatewayConfig} from './types.js';
@@ -245,8 +245,9 @@ export class UpstreamManager {
 		}
 	}
 
-	/** List tools from an upstream. Returns empty array if upstream is down or auth is required. */
-	async listTools(upstreamName: string, userId?: string): Promise<Tool[]> {
+	/** List tools from an upstream, along with the upstream's advertised serverInfo.
+	 *  Returns an empty tool list if the upstream is down or auth is required. */
+	async listTools(upstreamName: string, userId?: string): Promise<{tools: Tool[]; serverInfo?: Implementation | undefined}> {
 		try {
 			const client = await this.getClient(upstreamName, userId);
 			try {
@@ -255,20 +256,20 @@ export class UpstreamManager {
 					this.discoveryTimeout,
 					`list tools from ${upstreamName}`,
 				);
-				return result.tools;
+				return {tools: result.tools, serverInfo: client.getServerVersion()};
 			} finally {
 				await client.close().catch(noop);
 			}
 		} catch (err) {
 			if (err instanceof UpstreamAuthRequiredError) {
-				return [];
+				return {tools: []};
 			}
 
 			if (!this.looksLikeAuthError(err)) {
 				console.error(`Failed to list tools from ${upstreamName}:`, err);
 			}
 
-			return [];
+			return {tools: []};
 		}
 	}
 
