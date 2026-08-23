@@ -507,6 +507,69 @@ describe('upstream OAuth token management', () => {
 		expect(body.result.isError).toBeFalsy();
 		expect(body.result.content[0]!.text).toBe('pong');
 	}, 30_000);
+
+	test('a rejected refresh drops the stored token and asks for re-auth', async () => {
+		const token = await getAccessToken();
+
+		// Expired access token whose refresh token the upstream no longer knows
+		store.upsertToken('adam', 'oauth-server', {
+			access_token: 'expired-access-token',
+			refresh_token: 'refresh-token-the-upstream-forgot',
+			token_type: 'bearer',
+			expires_in: -200,
+		});
+
+		await mcpCall(token, 'initialize', {
+			protocolVersion: '2025-03-26',
+			capabilities: {},
+			clientInfo: {name: 'test', version: '1.0.0'},
+		});
+
+		// Previously this failed with "Token refresh failed" on every call, forever,
+		// while gateway__auth still reported the upstream as authenticated.
+		const callRes = await mcpCall(token, 'tools/call', {name: 'oauth-server__ping', arguments: {}}, 2);
+		const callBody = await callRes.json() as {result: {content: {text: string}[]; isError: boolean}};
+		expect(callBody.result.isError).toBe(true);
+		expect(callBody.result.content[0]!.text).toContain('Authentication required');
+
+		expect(store.getToken('adam', 'oauth-server')).toBeUndefined();
+
+		const statusRes = await mcpCall(token, 'tools/call', {name: 'gateway__auth', arguments: {}}, 3);
+		const statusBody = await statusRes.json() as {result: {content: {text: string}[]}};
+		const statuses = JSON.parse(statusBody.result.content[0]!.text) as {servers: {name: string; authenticated: boolean; authUrl?: string}[]};
+		const oauth = statuses.servers.find((s) => s.name === 'oauth-server');
+		expect(oauth?.authenticated).toBe(false);
+		expect(oauth?.authUrl).toBeTruthy();
+	}, 30_000);
+
+	test('an upstream that forgot our client also drops the registration so the next auth re-registers', async () => {
+		const token = await getAccessToken();
+
+		// A valid refresh token, but the upstream has restarted and no longer knows
+		// the client we registered with it.
+		store.upsertRegistration('oauth-server', 'stale-client-id', null, JSON.stringify({client_id: 'stale-client-id'}));
+		oauthUpstream.forgetRegistrations();
+		store.upsertToken('adam', 'oauth-server', {
+			access_token: 'expired-access-token',
+			refresh_token: oauthUpstream.issueRefreshToken(),
+			token_type: 'bearer',
+			expires_in: -200,
+		});
+
+		await mcpCall(token, 'initialize', {
+			protocolVersion: '2025-03-26',
+			capabilities: {},
+			clientInfo: {name: 'test', version: '1.0.0'},
+		});
+
+		const callRes = await mcpCall(token, 'tools/call', {name: 'oauth-server__ping', arguments: {}}, 2);
+		const callBody = await callRes.json() as {result: {content: {text: string}[]; isError: boolean}};
+		expect(callBody.result.isError).toBe(true);
+		expect(callBody.result.content[0]!.text).toContain('Authentication required');
+
+		expect(store.getToken('adam', 'oauth-server')).toBeUndefined();
+		expect(store.getRegistration('oauth-server')).toBeUndefined();
+	}, 30_000);
 });
 
 describe('full upstream OAuth browser flow', () => {

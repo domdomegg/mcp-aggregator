@@ -31,6 +31,10 @@ export type MockUpstream = {
 	issueToken: () => string;
 	/** Issue a refresh token that can be exchanged for a new access token */
 	issueRefreshToken: () => string;
+	/** Forget every client registered via DCR, as an upstream with an in-memory
+	 *  OAuth store does when it restarts. Refreshes from those clients then fail
+	 *  with invalid_client. */
+	forgetRegistrations: () => void;
 	close: () => Promise<void>;
 };
 
@@ -89,6 +93,7 @@ const createMcpServer = (name: string, title?: string): Server => {
 export const createMockUpstream = async (opts: MockUpstreamOptions): Promise<MockUpstream> => {
 	const validTokens = opts.validTokens ?? new Set<string>();
 	const validRefreshTokens = new Set<string>();
+	const registeredClients = new Set<string>();
 	const app = express();
 
 	if (opts.requireAuth) {
@@ -119,8 +124,10 @@ export const createMockUpstream = async (opts: MockUpstreamOptions): Promise<Moc
 
 		// Simple DCR
 		app.post('/register', express.json(), (_req, res) => {
+			const clientId = randomUUID();
+			registeredClients.add(clientId);
 			res.status(201).json({
-				client_id: randomUUID(),
+				client_id: clientId,
 				token_endpoint_auth_method: 'none',
 			});
 		});
@@ -146,6 +153,11 @@ export const createMockUpstream = async (opts: MockUpstreamOptions): Promise<Moc
 			const grantType = req.body.grant_type as string;
 
 			if (grantType === 'refresh_token') {
+				if (!registeredClients.has(req.body.client_id as string)) {
+					res.status(401).json({error: 'invalid_client'});
+					return;
+				}
+
 				const refreshToken = req.body.refresh_token as string;
 				if (!validRefreshTokens.has(refreshToken)) {
 					res.status(400).json({error: 'invalid_grant'});
@@ -231,6 +243,9 @@ export const createMockUpstream = async (opts: MockUpstreamOptions): Promise<Moc
 			const refreshToken = randomUUID();
 			validRefreshTokens.add(refreshToken);
 			return refreshToken;
+		},
+		forgetRegistrations() {
+			registeredClients.clear();
 		},
 		close: async () => new Promise<void>((resolve, reject) => {
 			httpServer.close((err) => {

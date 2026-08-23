@@ -509,6 +509,25 @@ export class UpstreamManager {
 		});
 
 		if (!res.ok) {
+			// 400/401 mean the grant itself was rejected (invalid_grant, invalid_client,
+			// unauthorized_client): retrying will never succeed, so the stored token is
+			// dead. Drop it, so the user is told to re-authenticate instead of every call
+			// failing on refresh indefinitely - which is what happened when an upstream
+			// restarted with an in-memory OAuth store and forgot both our client and the
+			// refresh token (google-workspace, 2026-08-20 to 23). If the upstream no
+			// longer knows our client, forget the registration too so the next auth
+			// re-registers. Anything else (5xx, network) is treated as transient.
+			if (res.status === 400 || res.status === 401) {
+				const error = await res.json().then((body) => (body as {error?: string}).error).catch(() => undefined);
+				this.store.deleteToken(userId, upstream.name);
+				if (error === 'invalid_client' || res.status === 401) {
+					this.store.deleteRegistration(upstream.name);
+				}
+
+				console.error(`Token refresh rejected by ${upstream.name} (${res.status}${error ? ` ${error}` : ''}); stored token dropped, re-auth required`);
+				throw new UpstreamAuthRequiredError(upstream.name, `${this.getBaseUrl()}/upstream-auth/start?upstream=${upstream.name}`);
+			}
+
 			throw new Error(`Token refresh failed for ${upstream.name}: ${res.status}`);
 		}
 
