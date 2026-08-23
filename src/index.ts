@@ -1,12 +1,14 @@
 #!/usr/bin/env node
+import {createServer} from 'node:http';
 import {loadConfig} from './config.js';
+import {listen} from './listen.js';
 import {OidcClient} from './oidc-client.js';
 import {GatewayOAuthProvider} from './oauth-provider.js';
 import {TokenStore} from './token-store.js';
 import {UpstreamManager} from './upstream-manager.js';
 import {createApp} from './server.js';
 
-const main = () => {
+const main = async () => {
 	const config = loadConfig();
 	const store = new TokenStore(config.storage);
 	const oidcClient = new OidcClient(config.auth);
@@ -15,13 +17,12 @@ const main = () => {
 	const app = createApp(config, provider, oidcClient, store, upstreamManager);
 
 	const port = config.port ?? 3000;
-	const host = config.host ?? '0.0.0.0';
-	const server = app.listen(port, host, () => {
-		console.log(`mcp-aggregator listening on ${host}:${port}`);
-		console.log(`Auth: ${config.auth.issuer}`);
-		console.log(`Upstreams: ${config.upstreams.map((u) => u.name).join(', ')}`);
-		console.log(`Storage: ${config.storage ?? 'memory'}`);
-	});
+	const server = createServer(app);
+	const host = await listen(server, port, config.host);
+	console.log(`mcp-aggregator listening on ${host}:${port}`);
+	console.log(`Auth: ${config.auth.issuer}`);
+	console.log(`Upstreams: ${config.upstreams.map((u) => u.name).join(', ')}`);
+	console.log(`Storage: ${config.storage ?? 'memory'}`);
 
 	const shutdown = () => {
 		console.log('\nShutting down...');
@@ -34,4 +35,7 @@ const main = () => {
 	process.on('SIGTERM', shutdown);
 };
 
-main();
+main().catch((error: unknown) => {
+	console.error(error);
+	process.exit(1);
+});
