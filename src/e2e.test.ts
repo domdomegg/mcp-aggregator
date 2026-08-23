@@ -485,7 +485,7 @@ describe('upstream OAuth token management', () => {
 		const token = await getAccessToken();
 
 		// Seed an expired access token with a valid refresh token
-		// expires_in of -200 sets expires_at 200s in the past, past the 60s buffer in isTokenExpired
+		// expires_in of -200 sets expires_at 200s in the past
 		const refreshToken = oauthUpstream.issueRefreshToken();
 		store.upsertToken('adam', 'oauth-server', {
 			access_token: 'expired-access-token',
@@ -506,6 +506,34 @@ describe('upstream OAuth token management', () => {
 		const body = await res.json() as {result: {content: {text: string}[]; isError?: boolean}};
 		expect(body.result.isError).toBeFalsy();
 		expect(body.result.content[0]!.text).toBe('pong');
+	}, 30_000);
+
+	test('refreshes a token that is about to expire, before the upstream rejects it', async () => {
+		const token = await getAccessToken();
+
+		// Still valid for 30s — inside the 60s refresh buffer. The access token
+		// itself is one the upstream would reject, so the call only succeeds if
+		// the gateway refreshed first rather than on failure.
+		const refreshToken = oauthUpstream.issueRefreshToken();
+		store.upsertToken('adam', 'oauth-server', {
+			access_token: 'about-to-expire-access-token',
+			refresh_token: refreshToken,
+			token_type: 'bearer',
+			expires_in: 30,
+		});
+
+		await mcpCall(token, 'initialize', {
+			protocolVersion: '2025-03-26',
+			capabilities: {},
+			clientInfo: {name: 'test', version: '1.0.0'},
+		});
+
+		const res = await mcpCall(token, 'tools/call', {name: 'oauth-server__ping', arguments: {}}, 2);
+		expect(res.status).toBe(200);
+		const body = await res.json() as {result: {content: {text: string}[]; isError?: boolean}};
+		expect(body.result.isError).toBeFalsy();
+		expect(body.result.content[0]!.text).toBe('pong');
+		expect(store.getToken('adam', 'oauth-server')?.access_token).not.toBe('about-to-expire-access-token');
 	}, 30_000);
 
 	test('a rejected refresh drops the stored token and asks for re-auth', async () => {

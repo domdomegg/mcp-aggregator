@@ -83,7 +83,11 @@ export class TokenStore {
 			return false;
 		}
 
-		return token.expires_at < Math.floor(Date.now() / 1000) - 60; // 60s buffer
+		// Treat the token as expired 60s early, so it is refreshed before the
+		// upstream starts rejecting it. (This was `now - 60` — a buffer in the
+		// wrong direction — so for a minute after every expiry the upstream saw
+		// a dead token and callers saw its error instead of a refresh.)
+		return token.expires_at < Math.floor(Date.now() / 1000) + 60;
 	}
 
 	getRegistration(upstreamName: string): StoredRegistration | undefined {
