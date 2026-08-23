@@ -104,7 +104,7 @@ Only `auth.issuer` and `upstreams` are required. Everything else has sensible de
 | `upstreams[].clientSecret` | No | Pre-registered OAuth client secret, used alongside `clientId` for confidential clients. |
 | `storage` | No | Where to store per-user upstream tokens: `"memory"` (default) or a SQLite file path. |
 | `port` | No | Port to listen on. Defaults to `3000`. |
-| `host` | No | Host to bind to. Defaults to `"0.0.0.0"`. |
+| `host` | No | Host to bind to. Defaults to `"::"` (IPv6 + IPv4); falls back to `"0.0.0.0"` only if the host has no IPv6. |
 | `issuerUrl` | No | Public URL of this server. Required when behind a reverse proxy. |
 | `secret` | No | Signing key for tokens. Random if not set. Set a fixed value to survive restarts. |
 | `discoveryTimeout` | No | Timeout for upstream discovery/connect in ms. Defaults to `5000`. |
@@ -127,7 +127,7 @@ A full example:
   ],
   "storage": "/data/aggregator.sqlite",
   "port": 3000,
-  "host": "0.0.0.0",
+  "host": "::",
   "issuerUrl": "https://mcp.example.com",
   "secret": "some-persistent-secret",
   "discoveryTimeout": 5000,
