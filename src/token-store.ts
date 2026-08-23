@@ -105,6 +105,11 @@ export class TokenStore {
 		this.db.prepare('DELETE FROM upstream_tokens WHERE user_id = ? AND upstream_name = ?').run(userId, upstreamName);
 	}
 
+	/** Forget our client registration with an upstream, so the next auth re-registers (DCR). */
+	deleteRegistration(upstreamName: string): void {
+		this.db.prepare('DELETE FROM upstream_registrations WHERE upstream_name = ?').run(upstreamName);
+	}
+
 	hasToken(userId: string, upstreamName: string): boolean {
 		const token = this.getToken(userId, upstreamName);
 		return token !== undefined && !this.isTokenExpired(token);
