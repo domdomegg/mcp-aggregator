@@ -66,6 +66,8 @@ export class UpstreamManager {
 	private readonly oauthMetaCache = new Map<string, {meta: UpstreamOAuthMeta; expiresAt: number}>();
 	/** Cache of which upstreams require OAuth. Once discovered, stays true. */
 	private readonly requiresOAuth = new Set<string>();
+	/** Refreshes in flight, keyed by user + upstream, so concurrent callers share one. */
+	private readonly refreshing = new Map<string, Promise<void>>();
 
 	constructor(
 		private readonly config: GatewayConfig,
@@ -311,7 +313,7 @@ export class UpstreamManager {
 			}
 
 			if (token.refresh_token) {
-				await this.refreshUpstreamToken(upstream, userId, token.refresh_token);
+				await this.refreshOnce(upstream, userId, token.refresh_token);
 				return this.store.getToken(userId, upstream.name)!.access_token;
 			}
 
@@ -487,6 +489,36 @@ export class UpstreamManager {
 		return {clientId: reg.client_id, clientSecret: reg.client_secret ?? null};
 	}
 
+	/**
+	 * Single-flight per (user, upstream): concurrent callers share one refresh.
+	 * Upstreams that rotate refresh tokens (FastMCP's OAuth proxy) accept each
+	 * one once, so two parallel refreshes with the same token meant the second
+	 * was rejected as invalid_grant — and the handler below then threw away the
+	 * token the first had just stored (google-workspace, 2026-09-27 and
+	 * 2026-10-03). A caller whose stored token already changed by the time it
+	 * gets here simply uses the new one.
+	 */
+	private async refreshOnce(upstream: UpstreamConfig, userId: string, refreshToken: string): Promise<void> {
+		const key = `${userId}\0${upstream.name}`;
+		const inFlight = this.refreshing.get(key);
+		if (inFlight) {
+			await inFlight;
+			return;
+		}
+
+		const stored = this.store.getToken(userId, upstream.name);
+		if (stored?.refresh_token !== refreshToken) {
+			// Already refreshed by a flight that completed between our read and now.
+			return;
+		}
+
+		const flight = this.refreshUpstreamToken(upstream, userId, refreshToken).finally(() => {
+			this.refreshing.delete(key);
+		});
+		this.refreshing.set(key, flight);
+		await flight;
+	}
+
 	/** Refresh an expired upstream token. */
 	private async refreshUpstreamToken(upstream: UpstreamConfig, userId: string, refreshToken: string): Promise<void> {
 		const meta = await this.discoverUpstreamOAuth(upstream);
@@ -519,8 +551,13 @@ export class UpstreamManager {
 			// re-registers. Anything else (5xx, network) is treated as transient.
 			if (res.status === 400 || res.status === 401) {
 				const error = await res.json().then((body) => (body as {error?: string}).error).catch(() => undefined);
-				this.store.deleteToken(userId, upstream.name);
-				if (error === 'invalid_client' || res.status === 401) {
+				// Only drop what we actually sent: if the stored token has moved on
+				// (another refresh landed), it is live and must stay.
+				if (this.store.getToken(userId, upstream.name)?.refresh_token === refreshToken) {
+					this.store.deleteToken(userId, upstream.name);
+				}
+
+				if (error === 'invalid_client') {
 					this.store.deleteRegistration(upstream.name);
 				}
 

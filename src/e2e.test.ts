@@ -508,6 +508,39 @@ describe('upstream OAuth token management', () => {
 		expect(body.result.content[0]!.text).toBe('pong');
 	}, 30_000);
 
+	test('concurrent calls at expiry share one refresh: a rotated token is never thrown away', async () => {
+		const token = await getAccessToken();
+
+		// The mock upstream rotates refresh tokens, one use each — like FastMCP's
+		// OAuth proxy. Two refreshes with the same token used to race: the loser
+		// got invalid_grant and the handler deleted the winner's fresh token.
+		const refreshToken = oauthUpstream.issueRefreshToken();
+		store.upsertToken('adam', 'oauth-server', {
+			access_token: 'expired-access-token',
+			refresh_token: refreshToken,
+			token_type: 'bearer',
+			expires_in: -200,
+		});
+
+		await mcpCall(token, 'initialize', {
+			protocolVersion: '2025-03-26',
+			capabilities: {},
+			clientInfo: {name: 'test', version: '1.0.0'},
+		});
+
+		const results = await Promise.all([2, 3, 4].map(async (id) => mcpCall(token, 'tools/call', {name: 'oauth-server__ping', arguments: {}}, id)));
+		expect(results.map((res) => res.status)).toEqual([200, 200, 200]);
+		const bodies = await Promise.all(results.map(async (res) => res.json() as Promise<{result: {content: {text: string}[]; isError?: boolean}}>));
+		for (const body of bodies) {
+			expect(body.result.isError).toBeFalsy();
+			expect(body.result.content[0]!.text).toBe('pong');
+		}
+
+		const stored = store.getToken('adam', 'oauth-server');
+		expect(stored?.refresh_token).toBeDefined();
+		expect(stored?.refresh_token).not.toBe(refreshToken);
+	}, 30_000);
+
 	test('refreshes a token that is about to expire, before the upstream rejects it', async () => {
 		const token = await getAccessToken();
 
