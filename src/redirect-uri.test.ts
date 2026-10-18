@@ -36,7 +36,7 @@ describe('checkRedirectUri', () => {
 
 	test('trusts more well-known hosted clients by default', () => {
 		expect(checkRedirectUri('https://chatgpt.com/connector/oauth/abc123')).toBe('allowed');
-		expect(checkRedirectUri('https://vscode.dev/redirect')).toBe('allowed');
+		expect(checkRedirectUri('https://vscode.dev/redirect')).toBe('needs_consent');
 		expect(checkRedirectUri('https://chatgpt.com/other')).toBe('needs_consent');
 	});
 

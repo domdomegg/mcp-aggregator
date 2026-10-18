@@ -10,10 +10,6 @@ export const DEFAULT_ALLOWED_REDIRECT_URIS = [
 	'https://claude.com/api/mcp/auth_callback',
 	'https://chatgpt.com/connector_platform_oauth_redirect',
 	'https://chatgpt.com/connector/oauth/*',
-	'https://vscode.dev/redirect',
-	'https://vscode.dev/redirect/',
-	'https://insiders.vscode.dev/redirect',
-	'https://insiders.vscode.dev/redirect/',
 	'https://www.cursor.com/agents/mcp/oauth/callback',
 ];
 
