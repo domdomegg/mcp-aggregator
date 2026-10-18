@@ -15,6 +15,7 @@ import {createGatewayServer} from './gateway-server.js';
 import {
 	renderLandingPage, renderSuccessPage, renderErrorPage, renderDashboardPage, renderAuthCompletePage,
 } from './pages.js';
+import {checkRedirectUri} from './redirect-uri.js';
 
 const getString = (value: unknown): string | undefined =>
 	typeof value === 'string' ? value : undefined;
@@ -50,6 +51,11 @@ export const createApp = (
 
 		if (codeChallengeMethod && codeChallengeMethod !== 'S256') {
 			res.status(400).json({error: 'invalid_request', error_description: 'code_challenge_method must be S256'});
+			return;
+		}
+
+		if (checkRedirectUri(redirectUri, config.allowedRedirectUris) === 'invalid') {
+			res.status(400).json({error: 'invalid_request', error_description: 'Invalid redirect_uri'});
 			return;
 		}
 
@@ -109,7 +115,11 @@ export const createApp = (
 			const {redirectUrl} = provider.completeAuthorization(pending, userId);
 			const dashboardToken = provider.createDashboardToken(userId);
 			const dashboardUrl = `${getBaseUrl()}/dashboard?token=${dashboardToken}`;
-			res.send(renderAuthCompletePage(redirectUrl, dashboardUrl));
+			// The redirect_uri is attacker-controllable (see redirect-uri.ts), so name it before handing over the code
+			const untrustedHost = checkRedirectUri(pending.redirectUri, config.allowedRedirectUris) === 'needs_consent' ? new URL(pending.redirectUri).host : undefined;
+			res.set('X-Frame-Options', 'DENY');
+			res.set('Content-Security-Policy', 'frame-ancestors \'none\'');
+			res.send(renderAuthCompletePage(redirectUrl, dashboardUrl, untrustedHost));
 		} catch (err) {
 			console.error('Callback error:', err);
 			res.status(500).send('Authentication failed');

@@ -139,24 +139,35 @@ ${footerHtml}
 </body>
 </html>`;
 
-export const renderAuthCompletePage = (clientRedirectUrl: string, dashboardUrl: string): string => `${pageHead('MCP Aggregator', `${CENTER_CSS}
-  ${BTN_CSS}`)}
+const AUTH_COMPLETE_CSS = `h1 { margin-bottom: 8px; }
+  .msg { font-size: 13px; color: var(--subtle); margin-bottom: 28px; }
+  .msg strong { color: var(--fg); }
+  ${BTN_CSS}
+  .btn { margin-top: 0; }`;
+
+export const renderAuthCompletePage = (clientRedirectUrl: string, dashboardUrl: string, untrustedHost?: string): string => `${pageHead('MCP Aggregator', AUTH_COMPLETE_CSS)}
 <body>
-<div class="center">
 <h1>MCP Aggregator</h1>
-<p class="msg">Connect your services to get started.</p>
-<a id="go" class="btn" href="${escapeHtml(clientRedirectUrl)}">connect services</a>
+${untrustedHost
+	? `<p class="msg">This will give <strong>${escapeHtml(untrustedHost)}</strong> access to all your connected services.</p>
+<p class="msg">Only continue if you started this sign-in yourself and you recognise this address. If someone sent you a link, close this page.</p>`
+	: '<p class="msg">Connect your services to get started.</p>'}
+<a id="go" class="btn" href="${escapeHtml(clientRedirectUrl)}">${untrustedHost ? `continue to ${escapeHtml(untrustedHost)}` : 'connect services'}</a>
 ${footerHtml}
-</div>
 <script>
   document.getElementById('go').addEventListener('click', function(e) {
     e.preventDefault();
-    window.open(${JSON.stringify(dashboardUrl)});
-    window.location.href = ${JSON.stringify(clientRedirectUrl)};
+    window.open(${scriptString(dashboardUrl)});
+    window.location.href = ${scriptString(clientRedirectUrl)};
   });
 </script>
 </body>
 </html>`;
+
+// JSON.stringify doesn't escape '<', so '</script>' in a value would end the script element
+function scriptString(s: string): string {
+	return JSON.stringify(s).replace(/</g, '\\u003c');
+}
 
 function escapeHtml(s: string): string {
 	return s

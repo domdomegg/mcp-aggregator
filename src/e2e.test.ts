@@ -283,6 +283,57 @@ describe('OAuth discovery', () => {
 	});
 });
 
+// Helper: start an authorization with the given redirect_uri and follow it to the auth complete page
+const authorizeWith = async (redirectUri: string): Promise<Response> => {
+	const authorizeUrl = new URL(`${gatewayUrl}/authorize`);
+	authorizeUrl.searchParams.set('client_id', 'any-client');
+	authorizeUrl.searchParams.set('redirect_uri', redirectUri);
+	authorizeUrl.searchParams.set('response_type', 'code');
+	authorizeUrl.searchParams.set('code_challenge', generatePkce().codeChallenge);
+	authorizeUrl.searchParams.set('code_challenge_method', 'S256');
+
+	let res = await fetch(authorizeUrl.toString(), {redirect: 'manual'});
+	while (res.status === 302) {
+		res = await fetch(res.headers.get('location')!, {redirect: 'manual'}); // eslint-disable-line no-await-in-loop
+	}
+
+	return res;
+};
+
+describe('redirect URI checks', () => {
+	test.each([
+		// eslint-disable-next-line no-script-url
+		'javascript:alert(1)//',
+		'data:text/html,hi',
+		'not a url',
+	])('rejects %s', async (redirectUri) => {
+		const res = await authorizeWith(redirectUri);
+		expect(res.status).toBe(400);
+	});
+
+	test.each([
+		'http://localhost:9999/callback',
+		'https://claude.ai/api/mcp/auth_callback',
+	])('shows the normal page for trusted %s', async (redirectUri) => {
+		const body = await (await authorizeWith(redirectUri)).text();
+		expect(body).toContain('connect services');
+		expect(body).not.toContain('access to all your connected services');
+	});
+
+	test('warns before handing a code to an untrusted redirect URI', async () => {
+		const res = await authorizeWith('https://attacker.example/cb');
+		expect(res.status).toBe(200);
+		expect(res.headers.get('x-frame-options')).toBe('DENY');
+		const body = await res.text();
+		expect(body).toContain('This will give <strong>attacker.example</strong> access to all your connected services');
+	});
+
+	test('escapes < in custom scheme redirect URIs inside the script', async () => {
+		const body = await (await authorizeWith('foo:</script><script>alert(1)</script>')).text();
+		expect(body).not.toContain('<script>alert(1)');
+	});
+});
+
 describe('unauthenticated requests', () => {
 	test('rejects /mcp without token with 401', async () => {
 		const res = await fetch(`${gatewayUrl}/mcp`, {
