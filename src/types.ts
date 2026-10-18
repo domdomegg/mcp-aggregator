@@ -38,7 +38,7 @@ export const GatewayConfigSchema = z.object({
 	toolTimeout: z.number().int().positive().optional(),
 	/**
 	 * Hosted client redirect URIs trusted without a confirmation step (loopback and native app URIs always are).
-	 * Defaults to well-known hosted client callbacks (Claude, ChatGPT, vscode.dev, Cursor; see `src/redirect-uri.ts`); setting this replaces the defaults. A trailing `*` matches any suffix.
+	 * Defaults to well-known hosted client callbacks (Claude, ChatGPT, Cursor; see `src/redirect-uri.ts`); setting this replaces the defaults. A trailing `*` matches any suffix.
 	 */
 	allowedRedirectUris: z.array(z.string()).optional(),
 });

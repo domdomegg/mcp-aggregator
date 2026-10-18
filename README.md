@@ -109,7 +109,7 @@ Only `auth.issuer` and `upstreams` are required. Everything else has sensible de
 | `secret` | No | Signing key for tokens. Random if not set. Set a fixed value to survive restarts. |
 | `discoveryTimeout` | No | Timeout for upstream discovery/connect in ms. Defaults to `5000`. |
 | `toolTimeout` | No | Timeout for upstream tool calls in ms. Defaults to `60000`. |
-| `allowedRedirectUris` | No | Hosted client redirect URIs that get a code without a warning (loopback and native app URIs always do). Others see a page naming where their access is going first. Defaults to well-known hosted client callbacks (Claude, ChatGPT, vscode.dev, Cursor; see `src/redirect-uri.ts`); setting this replaces the defaults. A trailing `*` matches any suffix. |
+| `allowedRedirectUris` | No | Hosted client redirect URIs that get a code without a warning (loopback and native app URIs always do). Others see a page naming where their access is going first. Defaults to well-known hosted client callbacks (Claude, ChatGPT, Cursor; see `src/redirect-uri.ts`); setting this replaces the defaults. A trailing `*` matches any suffix. |
 
 A full example:
 
